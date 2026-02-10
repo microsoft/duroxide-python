@@ -291,6 +291,10 @@ class Runtime:
         """Shutdown the runtime gracefully."""
         self._native.shutdown(timeout_ms)
 
+    def metrics_snapshot(self):
+        """Get a snapshot of runtime metrics."""
+        return self._native.metrics_snapshot()
+
 
 __all__ = [
     "SqliteProvider",

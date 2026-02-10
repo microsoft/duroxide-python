@@ -656,3 +656,166 @@ def test_sqlite_smoketest():
         assert result.output == "hello-sqlite"
     finally:
         runtime.shutdown(100)
+
+
+# ─── 22. Retry Exhaustion ────────────────────────────────────────
+
+
+def test_retry_exhaustion(provider):
+    """Activity exhausts all retries — error is caught by orchestration."""
+    client = Client(provider)
+    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+
+    def always_fails(ctx, input):
+        raise Exception("permanent failure")
+
+    runtime.register_activity("AlwaysFails", always_fails)
+
+    @runtime.register_orchestration("RetryExhaust")
+    def retry_exhaust(ctx, input):
+        try:
+            yield ctx.schedule_activity_with_retry("AlwaysFails", None, {
+                "max_attempts": 2,
+                "backoff": "fixed",
+            })
+            return "should not reach"
+        except Exception as e:
+            return f"caught: {e}"
+
+    runtime.start()
+    try:
+        instance_id = uid("retry-exhaust")
+        client.start_orchestration(instance_id, "RetryExhaust")
+        result = client.wait_for_orchestration(instance_id, 10_000)
+        assert result.status == "Completed"
+        assert result.output.startswith("caught:"), f"expected caught error, got: {result.output}"
+    finally:
+        runtime.shutdown(100)
+
+
+# ─── 23. CAN Version Upgrade ────────────────────────────────────
+
+
+def test_continue_as_new_version_upgrade(provider):
+    """CAN from v1.0.0 picks up v1.0.1 on next execution."""
+    client = Client(provider)
+    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime.register_activity("Echo", lambda ctx, inp: inp)
+
+    @runtime.register_orchestration("UpgradingWorkflow")
+    def upgrading_v1(ctx, input):
+        ctx.trace_info("[v1.0.0] will upgrade")
+        yield ctx.continue_as_new({"fromVersion": "1.0.0"})
+
+    @runtime.register_orchestration_versioned("UpgradingWorkflow", "1.0.1")
+    def upgrading_v2(ctx, input):
+        ctx.trace_info("[v1.0.1] upgraded")
+        return {"version": "1.0.1", "previousVersion": input.get("fromVersion")}
+
+    runtime.start()
+    try:
+        instance_id = uid("ver-can")
+        client.start_orchestration_versioned(instance_id, "UpgradingWorkflow", {}, "1.0.0")
+        result = client.wait_for_orchestration(instance_id, 10_000)
+        assert result.status == "Completed"
+        assert result.output["version"] == "1.0.1"
+        assert result.output["previousVersion"] == "1.0.0"
+    finally:
+        runtime.shutdown(100)
+
+
+# ─── 24. Version Routing ────────────────────────────────────────
+
+
+def test_version_routing(provider):
+    """Different versions run different logic."""
+    client = Client(provider)
+    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime.register_activity("Work", lambda ctx, inp: f"done-{inp}")
+
+    @runtime.register_orchestration("MultiVerWorkflow")
+    def multi_ver_v1(ctx, input):
+        return "v1-simple"
+
+    @runtime.register_orchestration_versioned("MultiVerWorkflow", "1.0.1")
+    def multi_ver_v2(ctx, input):
+        validated = yield ctx.schedule_activity("Work", "validated")
+        return f"v1.0.1-{validated}"
+
+    runtime.start()
+    try:
+        id_v1 = uid("multiver-v1")
+        id_v101 = uid("multiver-v101")
+        client.start_orchestration_versioned(id_v1, "MultiVerWorkflow", None, "1.0.0")
+        client.start_orchestration(id_v101, "MultiVerWorkflow", None)
+        r1 = client.wait_for_orchestration(id_v1, 10_000)
+        r2 = client.wait_for_orchestration(id_v101, 10_000)
+        assert r1.status == "Completed"
+        assert r1.output == "v1-simple"
+        assert r2.status == "Completed"
+        assert r2.output == "v1.0.1-done-validated"
+    finally:
+        runtime.shutdown(100)
+
+
+# ─── 25. Activity get_client ────────────────────────────────────
+
+
+def test_activity_get_client(provider):
+    """Activity can use get_client to start a new orchestration."""
+    client = Client(provider)
+    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+
+    def spawn_child(ctx, input):
+        child_client = ctx.get_client()
+        child_id = f"child-{ctx.instance_id}"
+        child_client.start_orchestration(child_id, "SimpleChild", input)
+        child_result = child_client.wait_for_orchestration(child_id, 10_000)
+        return child_result.output
+
+    runtime.register_activity("SpawnChild", spawn_child)
+
+    @runtime.register_orchestration("SimpleChild")
+    def simple_child(ctx, input):
+        return f"child-got-{input}"
+
+    @runtime.register_orchestration("ClientFromActivity")
+    def client_from_activity(ctx, input):
+        return (yield ctx.schedule_activity("SpawnChild", input))
+
+    runtime.start()
+    try:
+        instance_id = uid("cfa")
+        client.start_orchestration(instance_id, "ClientFromActivity", "trigger")
+        result = client.wait_for_orchestration(instance_id, 10_000)
+        assert result.status == "Completed"
+        assert result.output == "child-got-trigger"
+    finally:
+        runtime.shutdown(100)
+
+
+# ─── 26. Metrics Snapshot ───────────────────────────────────────
+
+
+def test_metrics_snapshot(provider):
+    """Runtime exposes metrics snapshot after processing."""
+    client = Client(provider)
+    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime.register_activity("Echo", lambda ctx, inp: inp)
+
+    @runtime.register_orchestration("MetricsTest")
+    def metrics_test(ctx, input):
+        return (yield ctx.schedule_activity("Echo", input))
+
+    runtime.start()
+    try:
+        instance_id = uid("metrics")
+        client.start_orchestration(instance_id, "MetricsTest", "hello")
+        client.wait_for_orchestration(instance_id, 10_000)
+        snapshot = runtime.metrics_snapshot()
+        assert snapshot is not None, "metrics snapshot should be available"
+        assert snapshot.orch_starts >= 1
+        assert snapshot.orch_completions >= 1
+        assert snapshot.activity_success >= 1
+    finally:
+        runtime.shutdown(100)

@@ -16,6 +16,8 @@ Write durable workflows as Python generators. The Rust runtime handles replay, p
 - **Deterministic replay** — safe resume after crashes
 - **SQLite & PostgreSQL** — pluggable storage providers
 - **Admin APIs** — instance management, metrics, pruning
+- **Activity client access** — `ctx.get_client()` lets activities start new orchestrations
+- **Runtime metrics** — `metrics_snapshot()` for orchestration/activity counters
 
 ## Installation
 
@@ -148,7 +150,7 @@ pip install maturin pytest
 # Build the native extension and install in development mode
 maturin develop
 
-# Run all 49 tests
+# Run all 54 tests
 pytest
 
 # Run tests with verbose output

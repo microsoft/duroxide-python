@@ -202,3 +202,14 @@ class ActivityContext:
     def is_cancelled(self) -> bool:
         """Check if this activity has been cancelled (e.g., lost a race/select)."""
         return activity_is_cancelled(self._trace_token)
+
+    def get_client(self):
+        """Get a Client from this activity's context (for starting orchestrations, etc.)."""
+        from duroxide._duroxide import activity_get_client
+        from duroxide import Client
+        native = activity_get_client(self._trace_token)
+        if native is None:
+            raise RuntimeError("Activity context not found")
+        client = Client.__new__(Client)
+        client._native = native
+        return client

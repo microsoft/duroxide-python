@@ -234,6 +234,29 @@ impl PyInstanceFilter {
     }
 }
 
+/// Runtime metrics snapshot returned to Python.
+#[pyclass(get_all)]
+#[derive(Debug, Clone)]
+pub struct PyMetricsSnapshot {
+    pub orch_starts: u64,
+    pub orch_completions: u64,
+    pub orch_failures: u64,
+    pub orch_application_errors: u64,
+    pub orch_infrastructure_errors: u64,
+    pub orch_configuration_errors: u64,
+    pub orch_poison: u64,
+    pub activity_success: u64,
+    pub activity_app_errors: u64,
+    pub activity_infra_errors: u64,
+    pub activity_config_errors: u64,
+    pub activity_poison: u64,
+    pub orch_dispatcher_items_fetched: u64,
+    pub worker_dispatcher_items_fetched: u64,
+    pub orch_continue_as_new: u64,
+    pub suborchestration_calls: u64,
+    pub provider_errors: u64,
+}
+
 /// A single history event returned to Python.
 #[pyclass(get_all)]
 #[derive(Debug, Clone)]

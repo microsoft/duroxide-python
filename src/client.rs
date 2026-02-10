@@ -20,6 +20,14 @@ pub struct PyClient {
     inner: Arc<Client>,
 }
 
+impl PyClient {
+    pub(crate) fn from_client(client: Client) -> Self {
+        Self {
+            inner: Arc::new(client),
+        }
+    }
+}
+
 #[pymethods]
 impl PyClient {
     /// Create a client backed by SQLite.

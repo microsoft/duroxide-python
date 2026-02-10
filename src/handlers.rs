@@ -37,6 +37,15 @@ pub fn activity_is_cancelled(token: &str) -> bool {
     map.get(token).is_some_and(|ctx| ctx.is_cancelled())
 }
 
+/// Called from Python to get a Client from the stored ActivityContext.
+pub fn activity_get_client(token: &str) -> Option<crate::client::PyClient> {
+    let map = ACTIVITY_CTXS.lock().unwrap();
+    map.get(token).map(|ctx| {
+        let client = ctx.get_client();
+        crate::client::PyClient::from_client(client)
+    })
+}
+
 /// Called from Python to trace through the Rust ActivityContext.
 pub fn activity_trace(token: &str, level: &str, message: &str) {
     let map = ACTIVITY_CTXS.lock().unwrap();

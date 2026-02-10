@@ -7,6 +7,7 @@ use duroxide::runtime::{self, OrchestrationHandler, OrchestrationRegistry};
 use crate::handlers::{PyActivityHandler, PyOrchestrationHandler};
 use crate::pg_provider::PyPostgresProvider;
 use crate::provider::PySqliteProvider;
+use crate::types::PyMetricsSnapshot;
 
 /// Global tokio runtime shared by all Python-facing blocking methods.
 pub(crate) static TOKIO_RT: std::sync::LazyLock<tokio::runtime::Runtime> =
@@ -26,6 +27,14 @@ pub struct PyRuntimeOptions {
     pub dispatcher_poll_interval_ms: Option<i64>,
     /// Worker lock timeout in ms (default: 30000)
     pub worker_lock_timeout_ms: Option<i64>,
+    /// Log format: "json", "pretty", or "compact" (default)
+    pub log_format: Option<String>,
+    /// Log level filter (e.g. "info", "debug")
+    pub log_level: Option<String>,
+    /// Service name for identification in logs/metrics
+    pub service_name: Option<String>,
+    /// Optional service version
+    pub service_version: Option<String>,
 }
 
 #[pymethods]
@@ -36,18 +45,30 @@ impl PyRuntimeOptions {
         worker_concurrency=None,
         dispatcher_poll_interval_ms=None,
         worker_lock_timeout_ms=None,
+        log_format=None,
+        log_level=None,
+        service_name=None,
+        service_version=None,
     ))]
     fn new(
         orchestration_concurrency: Option<i32>,
         worker_concurrency: Option<i32>,
         dispatcher_poll_interval_ms: Option<i64>,
         worker_lock_timeout_ms: Option<i64>,
+        log_format: Option<String>,
+        log_level: Option<String>,
+        service_name: Option<String>,
+        service_version: Option<String>,
     ) -> Self {
         Self {
             orchestration_concurrency,
             worker_concurrency,
             dispatcher_poll_interval_ms,
             worker_lock_timeout_ms,
+            log_format,
+            log_level,
+            service_name,
+            service_version,
         }
     }
 }
@@ -191,6 +212,22 @@ impl PyRuntime {
             if let Some(ms) = opts.worker_lock_timeout_ms {
                 rt_options.worker_lock_timeout = Duration::from_millis(ms as u64);
             }
+            if let Some(ref fmt) = opts.log_format {
+                rt_options.observability.log_format = match fmt.as_str() {
+                    "json" => runtime::LogFormat::Json,
+                    "pretty" => runtime::LogFormat::Pretty,
+                    _ => runtime::LogFormat::Compact,
+                };
+            }
+            if let Some(ref level) = opts.log_level {
+                rt_options.observability.log_level = level.clone();
+            }
+            if let Some(ref name) = opts.service_name {
+                rt_options.observability.service_name = name.clone();
+            }
+            if let Some(ref ver) = opts.service_version {
+                rt_options.observability.service_version = Some(ver.clone());
+            }
         }
 
         // Release GIL before blocking — orchestration handlers need GIL access
@@ -209,6 +246,29 @@ impl PyRuntime {
 
         self.inner = Some(rt);
         Ok(())
+    }
+
+    /// Get a snapshot of runtime metrics.
+    fn metrics_snapshot(&self) -> Option<PyMetricsSnapshot> {
+        self.inner.as_ref()?.metrics_snapshot().map(|m| PyMetricsSnapshot {
+            orch_starts: m.orch_starts,
+            orch_completions: m.orch_completions,
+            orch_failures: m.orch_failures,
+            orch_application_errors: m.orch_application_errors,
+            orch_infrastructure_errors: m.orch_infrastructure_errors,
+            orch_configuration_errors: m.orch_configuration_errors,
+            orch_poison: m.orch_poison,
+            activity_success: m.activity_success,
+            activity_app_errors: m.activity_app_errors,
+            activity_infra_errors: m.activity_infra_errors,
+            activity_config_errors: m.activity_config_errors,
+            activity_poison: m.activity_poison,
+            orch_dispatcher_items_fetched: m.orch_dispatcher_items_fetched,
+            worker_dispatcher_items_fetched: m.worker_dispatcher_items_fetched,
+            orch_continue_as_new: m.orch_continue_as_new,
+            suborchestration_calls: m.suborchestration_calls,
+            provider_errors: m.provider_errors,
+        })
     }
 
     /// Shutdown the runtime gracefully.

@@ -242,6 +242,22 @@ def send_email(ctx, input):
     return {"sent": True}
 ```
 
+### Activity with Client Access
+
+Activities can start other orchestrations or raise events:
+
+```python
+@runtime.register_activity("TriggerCleanup")
+def trigger_cleanup(ctx, input):
+    client = ctx.get_client()
+    client.start_orchestration(
+        f"cleanup-{input['id']}",
+        "CleanupWorkflow",
+        {"resource_id": input["id"]},
+    )
+    return {"triggered": True}
+```
+
 ### Returning Errors
 
 Raise an exception to mark the activity as failed:
@@ -345,8 +361,27 @@ runtime = Runtime(provider, PyRuntimeOptions(
     orchestration_concurrency=4,     # Max concurrent orchestration dispatches
     worker_concurrency=8,            # Max concurrent activity workers
     dispatcher_poll_interval_ms=100, # Polling interval in ms
+    log_level="info",                # Tracing log level
+    log_format="pretty",             # "pretty" or "json"
+    service_name="my-service",       # Service name for tracing metadata
+    service_version="1.0.0",         # Service version for tracing metadata
 ))
 ```
+
+## Metrics
+
+Get a snapshot of runtime metrics (requires observability to be configured):
+
+```python
+snapshot = runtime.metrics_snapshot()
+if snapshot:
+    print(f"Orchestrations started: {snapshot['orch_starts']}")
+    print(f"Orchestrations completed: {snapshot['orch_completions']}")
+    print(f"Activity successes: {snapshot['activity_success']}")
+    print(f"Provider errors: {snapshot['provider_errors']}")
+```
+
+Returns `None` if observability is not enabled. The snapshot includes counters for orchestration starts/completions/failures, activity results, dispatcher stats, and provider errors.
 
 ## Client Operations
 

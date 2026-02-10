@@ -30,11 +30,18 @@ fn activity_is_cancelled(token: String) -> bool {
     handlers::activity_is_cancelled(&token)
 }
 
+/// Get a Client from the stored ActivityContext (for use in activities).
+#[pyfunction]
+fn activity_get_client(token: String) -> Option<client::PyClient> {
+    handlers::activity_get_client(&token)
+}
+
 #[pymodule]
 fn _duroxide(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(activity_trace_log, m)?)?;
     m.add_function(wrap_pyfunction!(orchestration_trace_log, m)?)?;
     m.add_function(wrap_pyfunction!(activity_is_cancelled, m)?)?;
+    m.add_function(wrap_pyfunction!(activity_get_client, m)?)?;
     m.add_class::<provider::PySqliteProvider>()?;
     m.add_class::<pg_provider::PyPostgresProvider>()?;
     m.add_class::<client::PyClient>()?;
@@ -51,5 +58,6 @@ fn _duroxide(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<types::PyPruneResult>()?;
     m.add_class::<types::PyInstanceFilter>()?;
     m.add_class::<types::PyEvent>()?;
+    m.add_class::<types::PyMetricsSnapshot>()?;
     Ok(())
 }

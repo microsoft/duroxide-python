@@ -45,7 +45,7 @@ Python (generators)  ←→  PyO3 bridge  ←→  duroxide (Rust core)
 
 | File | Tests | Schema |
 |------|-------|--------|
-| `test_e2e.py` | 22 | `duroxide_python_e2e` |
+| `test_e2e.py` | 27 | `duroxide_python_e2e` |
 | `test_races.py` | 7 | `duroxide_python_races` |
 | `test_admin_api.py` | 14 | `duroxide_python_admin` |
 | `scenarios/test_toygres.py` | 6 | `duroxide_python_toygres` |
@@ -64,7 +64,7 @@ maturin develop --release          # release build
 cargo clippy --all-targets         # must pass with zero warnings
 
 # Test (requires DATABASE_URL in .env for PG tests)
-pytest -v                          # all 49 tests
+pytest -v                          # all 54 tests
 pytest tests/test_e2e.py -v        # e2e only
 pytest -s                          # show Rust tracing output
 
@@ -157,6 +157,18 @@ if getattr(provider, "_type", None) == "postgres":
 else:
     self._native = PyRuntime.from_sqlite(provider._native, options)
 ```
+
+### Activity Client Access
+
+`ctx.get_client()` calls `activity_get_client(token)` PyO3 function → looks up `ActivityContext` in `ACTIVITY_CTXS` map → calls `ctx.get_client()` → wraps result as `PyClient`. Activities can use this to start orchestrations, raise events, etc.
+
+### Metrics Snapshot
+
+`runtime.metrics_snapshot()` returns a dict with 17 counters (orch starts/completions/failures, activity results, dispatcher stats, provider errors). Returns `None` if observability is not enabled.
+
+### Observability Options
+
+`PyRuntimeOptions` includes `log_format`, `log_level`, `service_name`, `service_version` which map to `duroxide::ObservabilityConfig`.
 
 ### Non-Generator Orchestrations
 
