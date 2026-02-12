@@ -25,6 +25,7 @@ from duroxide._duroxide import (
     activity_trace_log,
     orchestration_trace_log,
     activity_is_cancelled,
+    init_tracing,
 )
 from duroxide.context import OrchestrationContext, ActivityContext
 from duroxide.driver import create_generator, next_step, dispose_generator
@@ -316,4 +317,5 @@ __all__ = [
     "PyPruneResult",
     "PyInstanceFilter",
     "PyEvent",
+    "init_tracing",
 ]

@@ -36,12 +36,69 @@ fn activity_get_client(token: String) -> Option<client::PyClient> {
     handlers::activity_get_client(&token)
 }
 
+/// Install a tracing subscriber that writes to a file.
+///
+/// Must be called **before** `runtime.start()`. Since duroxide uses
+/// `try_init()` (first-writer-wins), the runtime's built-in subscriber
+/// will silently no-op if one is already installed.
+#[pyfunction]
+#[pyo3(signature = (log_file, log_level=None, log_format=None))]
+fn init_tracing(
+    log_file: String,
+    log_level: Option<String>,
+    log_format: Option<String>,
+) -> PyResult<()> {
+    use std::fs::OpenOptions;
+    use pyo3::exceptions::PyRuntimeError;
+    use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
+
+    let level = log_level.unwrap_or_else(|| "info".to_string());
+    let filter_expr = format!("warn,duroxide::orchestration={level},duroxide::activity={level}");
+    let env_filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new(filter_expr));
+
+    let file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_file)
+        .map_err(|e| PyRuntimeError::new_err(format!("Failed to open log file '{log_file}': {e}")))?;
+
+    let format = log_format.unwrap_or_default();
+    match format.as_str() {
+        "json" => {
+            tracing_subscriber::registry()
+                .with(env_filter)
+                .with(fmt::layer().json().with_writer(file))
+                .try_init()
+                .map_err(|e| PyRuntimeError::new_err(format!("Failed to init tracing: {e}")))?;
+        }
+        "pretty" => {
+            tracing_subscriber::registry()
+                .with(env_filter)
+                .with(fmt::layer().with_writer(file))
+                .try_init()
+                .map_err(|e| PyRuntimeError::new_err(format!("Failed to init tracing: {e}")))?;
+        }
+        _ => {
+            // compact (default)
+            tracing_subscriber::registry()
+                .with(env_filter)
+                .with(fmt::layer().compact().with_writer(file))
+                .try_init()
+                .map_err(|e| PyRuntimeError::new_err(format!("Failed to init tracing: {e}")))?;
+        }
+    }
+
+    Ok(())
+}
+
 #[pymodule]
 fn _duroxide(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(activity_trace_log, m)?)?;
     m.add_function(wrap_pyfunction!(orchestration_trace_log, m)?)?;
     m.add_function(wrap_pyfunction!(activity_is_cancelled, m)?)?;
     m.add_function(wrap_pyfunction!(activity_get_client, m)?)?;
+    m.add_function(wrap_pyfunction!(init_tracing, m)?)?;
     m.add_class::<provider::PySqliteProvider>()?;
     m.add_class::<pg_provider::PyPostgresProvider>()?;
     m.add_class::<client::PyClient>()?;
