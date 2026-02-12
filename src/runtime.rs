@@ -3,7 +3,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use duroxide::runtime::{self, OrchestrationHandler, OrchestrationRegistry};
-use duroxide::runtime::observability::init_logging;
 
 use crate::handlers::{PyActivityHandler, PyOrchestrationHandler};
 use crate::pg_provider::PyPostgresProvider;
@@ -229,11 +228,6 @@ impl PyRuntime {
             if let Some(ref ver) = opts.service_version {
                 rt_options.observability.service_version = Some(ver.clone());
             }
-        }
-
-        // Initialize logging (SDK is the app boundary — library doesn't do this)
-        if let Err(_) = init_logging(&rt_options.observability) {
-            eprintln!("duroxide: logging already initialized (this is normal if running multiple runtimes or tests)");
         }
 
         // Release GIL before blocking — orchestration handlers need GIL access
