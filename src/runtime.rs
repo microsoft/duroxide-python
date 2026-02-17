@@ -35,9 +35,16 @@ pub struct PyRuntimeOptions {
     pub service_name: Option<String>,
     /// Optional service version
     pub service_version: Option<String>,
+    /// Maximum concurrent sessions per runtime (default: 10)
+    pub max_sessions_per_runtime: Option<i32>,
+    /// Session idle timeout in ms (default: 300000 = 5 minutes)
+    pub session_idle_timeout_ms: Option<i64>,
+    /// Stable worker identity for session ownership (e.g., K8s pod name)
+    pub worker_node_id: Option<String>,
 }
 
 #[pymethods]
+#[allow(clippy::too_many_arguments)]
 impl PyRuntimeOptions {
     #[new]
     #[pyo3(signature = (
@@ -49,6 +56,9 @@ impl PyRuntimeOptions {
         log_level=None,
         service_name=None,
         service_version=None,
+        max_sessions_per_runtime=None,
+        session_idle_timeout_ms=None,
+        worker_node_id=None,
     ))]
     fn new(
         orchestration_concurrency: Option<i32>,
@@ -59,6 +69,9 @@ impl PyRuntimeOptions {
         log_level: Option<String>,
         service_name: Option<String>,
         service_version: Option<String>,
+        max_sessions_per_runtime: Option<i32>,
+        session_idle_timeout_ms: Option<i64>,
+        worker_node_id: Option<String>,
     ) -> Self {
         Self {
             orchestration_concurrency,
@@ -69,6 +82,9 @@ impl PyRuntimeOptions {
             log_level,
             service_name,
             service_version,
+            max_sessions_per_runtime,
+            session_idle_timeout_ms,
+            worker_node_id,
         }
     }
 }
@@ -227,6 +243,15 @@ impl PyRuntime {
             }
             if let Some(ref ver) = opts.service_version {
                 rt_options.observability.service_version = Some(ver.clone());
+            }
+            if let Some(max) = opts.max_sessions_per_runtime {
+                rt_options.max_sessions_per_runtime = max as usize;
+            }
+            if let Some(ms) = opts.session_idle_timeout_ms {
+                rt_options.session_idle_timeout = Duration::from_millis(ms as u64);
+            }
+            if let Some(ref nid) = opts.worker_node_id {
+                rt_options.worker_node_id = Some(nid.clone());
             }
         }
 

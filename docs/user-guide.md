@@ -230,6 +230,106 @@ result = yield ctx.schedule_activity_with_retry("FlakeyApi", input, {
 })
 ```
 
+## Sessions (Activity Affinity)
+
+Sessions provide **activity affinity** — all activities scheduled with the same `session_id` are routed to the same worker slot on the same runtime instance. This is useful when activities need to share in-memory state (e.g., a database connection, a loaded ML model, or a stateful client).
+
+### Scheduling a Session Activity
+
+Use `schedule_activity_on_session` or pass `session_id` as a keyword argument to `schedule_activity`:
+
+```python
+@runtime.register_orchestration("SessionWorkflow")
+def session_workflow(ctx, input):
+    # Explicit method
+    r1 = yield ctx.schedule_activity_on_session("ProcessData", input, "my-session-1")
+
+    # Keyword argument (equivalent)
+    r2 = yield ctx.schedule_activity("ProcessData", input, session_id="my-session-1")
+
+    return [r1, r2]
+```
+
+Both activities above run on the same worker slot because they share `session_id="my-session-1"`.
+
+### Reading Session ID in an Activity
+
+Activities can check their session ID via `ctx.session_id`. Regular (non-session) activities get `None`:
+
+```python
+@runtime.register_activity("MyActivity")
+def my_activity(ctx, input):
+    if ctx.session_id:
+        print(f"Running in session: {ctx.session_id}")
+    else:
+        print("No session (regular activity)")
+    return input
+```
+
+### Session Runtime Options
+
+Configure session behavior via `PyRuntimeOptions`:
+
+```python
+from duroxide import Runtime, PyRuntimeOptions
+
+runtime = Runtime(provider, PyRuntimeOptions(
+    max_sessions_per_runtime=10,       # Max concurrent sessions (default: 10)
+    session_idle_timeout_ms=300000,    # Idle timeout before releasing slot (default: 5 min)
+    worker_node_id="pod-abc-123",      # Stable worker identity (e.g., K8s pod name)
+))
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `max_sessions_per_runtime` | 10 | Maximum number of concurrent session slots per runtime instance |
+| `session_idle_timeout_ms` | 300000 (5 min) | How long an idle session slot is held before being released |
+| `worker_node_id` | Auto-generated | Stable identity for session ownership. Set this to a K8s pod name or hostname so sessions survive runtime restarts on the same node. |
+
+### Complete Example
+
+```python
+from duroxide import SqliteProvider, Client, Runtime, PyRuntimeOptions
+
+provider = SqliteProvider.in_memory()
+client = Client(provider)
+runtime = Runtime(provider, PyRuntimeOptions(
+    max_sessions_per_runtime=5,
+    session_idle_timeout_ms=60000,
+    worker_node_id="worker-1",
+))
+
+# Stateful activity — shares in-memory state within a session
+session_state = {}
+
+@runtime.register_activity("Accumulate")
+def accumulate(ctx, input):
+    sid = ctx.session_id
+    if sid not in session_state:
+        session_state[sid] = []
+    session_state[sid].append(input)
+    return session_state[sid]
+
+@runtime.register_orchestration("BatchProcess")
+def batch_process(ctx, input):
+    for item in input["items"]:
+        result = yield ctx.schedule_activity_on_session(
+            "Accumulate", item, f"batch-{input['batch_id']}"
+        )
+    return result  # All items accumulated in order
+
+runtime.start()
+
+client.start_orchestration("batch-1", "BatchProcess", {
+    "batch_id": "001",
+    "items": ["a", "b", "c"],
+})
+result = client.wait_for_orchestration("batch-1")
+print(result.output)  # ["a", "b", "c"]
+
+runtime.shutdown()
+```
+
 ## Activity Patterns
 
 ### Basic Activity
@@ -365,6 +465,9 @@ runtime = Runtime(provider, PyRuntimeOptions(
     log_format="pretty",             # "pretty" or "json"
     service_name="my-service",       # Service name for tracing metadata
     service_version="1.0.0",         # Service version for tracing metadata
+    max_sessions_per_runtime=10,     # Max concurrent session slots
+    session_idle_timeout_ms=300000,  # Session idle timeout (5 min default)
+    worker_node_id="pod-name",       # Stable worker identity for sessions
 ))
 ```
 

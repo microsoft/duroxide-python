@@ -27,7 +27,7 @@ fn extract_event_data(kind: &duroxide::EventKind) -> Option<String> {
         duroxide::EventKind::OrchestrationFailed { details } => {
             serde_json::to_string(details).ok()
         }
-        duroxide::EventKind::ActivityScheduled { name, input } => {
+        duroxide::EventKind::ActivityScheduled { name, input, .. } => {
             Some(format!(r#"{{"name":{},"input":{}}}"#,
                 serde_json::to_string(name).unwrap_or_default(),
                 input))

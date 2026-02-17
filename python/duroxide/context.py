@@ -32,12 +32,37 @@ class OrchestrationContext:
 
     # ─── Scheduling (yield these) ──────────────────────────
 
-    def schedule_activity(self, name: str, input=None) -> dict:
-        """Schedule an activity. Yield the return value."""
+    def schedule_activity(self, name: str, input=None, session_id: str = None) -> dict:
+        """Schedule an activity. Yield the return value.
+
+        If session_id is provided, the activity will be routed to the worker
+        owning that session (session affinity).
+        """
+        if session_id is not None:
+            return {
+                "type": "activityWithSession",
+                "name": name,
+                "input": json.dumps(input),
+                "sessionId": session_id,
+            }
         return {
             "type": "activity",
             "name": name,
             "input": json.dumps(input),
+        }
+
+    def schedule_activity_on_session(
+        self, name: str, input, session_id: str
+    ) -> dict:
+        """Schedule an activity with session affinity. Yield the return value.
+
+        Activities with the same session_id are routed to the same worker.
+        """
+        return {
+            "type": "activityWithSession",
+            "name": name,
+            "input": json.dumps(input),
+            "sessionId": session_id,
         }
 
     def schedule_activity_with_retry(self, name: str, input, retry: dict) -> dict:
@@ -185,6 +210,7 @@ class ActivityContext:
         self.orchestration_version: str = ctx_info["orchestrationVersion"]
         self.activity_name: str = ctx_info["activityName"]
         self.worker_id: str = ctx_info["workerId"]
+        self.session_id: str = ctx_info.get("sessionId")
         self._trace_token: str = ctx_info["_traceToken"]
 
     def trace_info(self, message: str):

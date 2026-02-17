@@ -8,6 +8,13 @@ use serde::{Deserialize, Serialize};
 pub enum ScheduledTask {
     #[serde(rename = "activity")]
     Activity { name: String, input: String },
+    #[serde(rename = "activityWithSession")]
+    ActivityWithSession {
+        name: String,
+        input: String,
+        #[serde(rename = "sessionId")]
+        session_id: String,
+    },
     #[serde(rename = "activityWithRetry")]
     ActivityWithRetry {
         name: String,

@@ -144,6 +144,7 @@ impl PyActivityHandler {
             "orchestrationVersion": ctx.orchestration_version(),
             "activityName": ctx.activity_name(),
             "workerId": ctx.worker_id(),
+            "sessionId": ctx.session_id(),
             "_traceToken": token,
         });
 
@@ -243,6 +244,19 @@ impl PyOrchestrationHandler {
         match task {
             ScheduledTask::Activity { name, input } => {
                 match ctx.schedule_activity(&name, input).await {
+                    Ok(val) => TaskResult::Ok(val),
+                    Err(err) => TaskResult::Err(err),
+                }
+            }
+            ScheduledTask::ActivityWithSession {
+                name,
+                input,
+                session_id,
+            } => {
+                match ctx
+                    .schedule_activity_on_session(&name, input, session_id)
+                    .await
+                {
                     Ok(val) => TaskResult::Ok(val),
                     Err(err) => TaskResult::Err(err),
                 }
@@ -437,6 +451,19 @@ fn make_select_future(
                 Err(e) => e,
             }
         }),
+        ScheduledTask::ActivityWithSession {
+            name,
+            input,
+            session_id,
+        } => Box::pin(async move {
+            match ctx
+                .schedule_activity_on_session(&name, input, session_id)
+                .await
+            {
+                Ok(v) => v,
+                Err(e) => e,
+            }
+        }),
         ScheduledTask::ActivityWithRetry {
             name,
             input,
@@ -516,6 +543,19 @@ fn make_join_future(
     match task {
         ScheduledTask::Activity { name, input } => Box::pin(async move {
             match ctx.schedule_activity(&name, input).await {
+                Ok(v) => serde_json::json!({ "ok": v }).to_string(),
+                Err(e) => serde_json::json!({ "err": e }).to_string(),
+            }
+        }),
+        ScheduledTask::ActivityWithSession {
+            name,
+            input,
+            session_id,
+        } => Box::pin(async move {
+            match ctx
+                .schedule_activity_on_session(&name, input, session_id)
+                .await
+            {
                 Ok(v) => serde_json::json!({ "ok": v }).to_string(),
                 Err(e) => serde_json::json!({ "err": e }).to_string(),
             }
