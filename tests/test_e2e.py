@@ -756,7 +756,110 @@ def test_activity_get_client(provider):
         runtime.shutdown(100)
 
 
-# ─── 26. Metrics Snapshot ───────────────────────────────────────
+# ─── 26. Custom Status Get ──────────────────────────────────────
+
+
+def test_custom_status_get_reflects_set_across_turns(provider):
+    """ctx.get_custom_status() returns correct value, including across turn boundaries."""
+    client = Client(provider)
+    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+
+    @runtime.register_activity("Echo")
+    def echo(ctx, input):
+        return input
+
+    @runtime.register_orchestration("GetterTest")
+    def getter_test(ctx, input):
+        # Before any set, should be None
+        assert ctx.get_custom_status() is None, "initial should be None"
+
+        ctx.set_custom_status("step-1")
+        assert ctx.get_custom_status() == "step-1", "should reflect set immediately"
+
+        # Cross a turn boundary
+        yield ctx.schedule_activity("Echo", "ping")
+
+        # After replay, should still return "step-1"
+        assert ctx.get_custom_status() == "step-1", "should survive replay across turns"
+
+        ctx.set_custom_status("step-2")
+        assert ctx.get_custom_status() == "step-2", "should reflect second set"
+
+        return "done"
+
+    runtime.start()
+    try:
+        instance_id = uid("cs-getter")
+        client.start_orchestration(instance_id, "GetterTest", "")
+        result = client.wait_for_orchestration(instance_id, 10_000)
+        assert result.status == "Completed"
+        assert result.output == "done"
+        assert result.custom_status == "step-2"
+    finally:
+        runtime.shutdown(100)
+
+
+def test_custom_status_persists_across_continue_as_new(provider):
+    """Custom status persists across CAN boundaries and can be reset."""
+    client = Client(provider)
+    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+
+    @runtime.register_activity("Echo")
+    def echo(ctx, input):
+        return input
+
+    @runtime.register_orchestration("StatusCanTest")
+    def status_can_test(ctx, input):
+        generation = input.get("generation", 1) if isinstance(input, dict) else 1
+
+        if generation == 1:
+            # First generation: set status, verify, then CAN
+            assert ctx.get_custom_status() is None, "gen1: initial should be None"
+            ctx.set_custom_status("gen1-active")
+            assert ctx.get_custom_status() == "gen1-active", "gen1: should reflect set"
+
+            # Cross a turn boundary to ensure persistence
+            yield ctx.schedule_activity("Echo", "ping")
+            assert ctx.get_custom_status() == "gen1-active", "gen1: should survive turn"
+
+            # CAN — runtime carries forward custom status automatically
+            yield ctx.continue_as_new({"generation": 2})
+            return None
+        elif generation == 2:
+            # Second generation: status should be carried forward from gen1
+            assert ctx.get_custom_status() == "gen1-active", "gen2: should inherit from gen1"
+
+            # Update status in gen2
+            ctx.set_custom_status("gen2-updated")
+            assert ctx.get_custom_status() == "gen2-updated", "gen2: should reflect new set"
+
+            # Now reset it
+            ctx.reset_custom_status()
+            assert ctx.get_custom_status() is None, "gen2: should be None after reset"
+
+            # CAN again with no status
+            yield ctx.continue_as_new({"generation": 3})
+            return None
+        else:
+            # Third generation: status should be None (was reset before CAN)
+            assert ctx.get_custom_status() is None, "gen3: should be None after reset+CAN"
+
+            ctx.set_custom_status("gen3-final")
+            return "done"
+
+    runtime.start()
+    try:
+        instance_id = uid("cs-can")
+        client.start_orchestration(instance_id, "StatusCanTest", {"generation": 1})
+        result = client.wait_for_orchestration(instance_id, 15_000)
+        assert result.status == "Completed"
+        assert result.output == "done"
+        assert result.custom_status == "gen3-final"
+    finally:
+        runtime.shutdown(100)
+
+
+# ─── 27. Metrics Snapshot ───────────────────────────────────────
 
 
 def test_metrics_snapshot(provider):

@@ -26,6 +26,7 @@ from duroxide._duroxide import (
     orchestration_trace_log,
     orchestration_set_custom_status,
     orchestration_reset_custom_status,
+    orchestration_get_custom_status,
     activity_is_cancelled,
     init_tracing,
 )

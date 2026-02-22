@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "duroxide"
-version = "0.1.8"
+version = "0.1.9"
 description = "Python SDK for the Duroxide durable execution runtime"
 readme = "README.md"
 license = { text = "MIT" }

@@ -42,6 +42,13 @@ fn orchestration_reset_custom_status(instance_id: String) {
     handlers::orchestration_reset_custom_status(&instance_id);
 }
 
+/// Read the current custom status value from an orchestration context.
+/// Returns None if no custom status has been set.
+#[pyfunction]
+fn orchestration_get_custom_status(instance_id: String) -> Option<String> {
+    handlers::orchestration_get_custom_status(&instance_id)
+}
+
 /// Get a Client from the stored ActivityContext (for use in activities).
 #[pyfunction]
 fn activity_get_client(token: String) -> Option<client::PyClient> {
@@ -111,6 +118,7 @@ fn _duroxide(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(activity_is_cancelled, m)?)?;
     m.add_function(wrap_pyfunction!(orchestration_set_custom_status, m)?)?;
     m.add_function(wrap_pyfunction!(orchestration_reset_custom_status, m)?)?;
+    m.add_function(wrap_pyfunction!(orchestration_get_custom_status, m)?)?;
     m.add_function(wrap_pyfunction!(activity_get_client, m)?)?;
     m.add_function(wrap_pyfunction!(init_tracing, m)?)?;
     m.add_class::<provider::PySqliteProvider>()?;

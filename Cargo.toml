@@ -1,6 +1,6 @@
 [package]
 name = "duroxide-python"
-version = "0.1.7"
+version = "0.1.8"
 edition = "2021"
 
 [lib]
@@ -8,8 +8,8 @@ name = "duroxide_python"
 crate-type = ["cdylib"]
 
 [dependencies]
-duroxide = { version = "0.1.19", features = ["sqlite"] }
-duroxide-pg = "0.1.21"
+duroxide = { version = "0.1.20", features = ["sqlite"] }
+duroxide-pg = "0.1.22"
 pyo3 = { version = "0.23", features = ["extension-module"] }
 async-trait = "0.1"
 tokio = { version = "1", features = ["full"] }

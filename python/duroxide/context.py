@@ -9,11 +9,13 @@ ActivityContext provides tracing and cancellation for activity functions.
 """
 
 import json
+from typing import Optional
 
 from duroxide._duroxide import (
     orchestration_trace_log,
     orchestration_set_custom_status,
     orchestration_reset_custom_status,
+    orchestration_get_custom_status,
     activity_trace_log,
     activity_is_cancelled,
 )
@@ -239,6 +241,15 @@ class OrchestrationContext:
         Fire-and-forget — no yield needed.
         """
         orchestration_reset_custom_status(self.instance_id)
+
+    def get_custom_status(self) -> Optional[str]:
+        """Read the current custom status value.
+
+        Returns the status string or None if none has been set.
+        Reflects all set/reset calls made so far, including across turns
+        and continue-as-new boundaries.
+        """
+        return orchestration_get_custom_status(self.instance_id)
 
     # ─── Logging (fire-and-forget, delegates to Rust ctx.trace()) ───
 
