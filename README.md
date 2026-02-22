@@ -1,6 +1,6 @@
 # duroxide-python
 
-Python SDK for the [Duroxide](https://github.com/affandar/duroxide) durable execution runtime.
+Python SDK for the [Duroxide](https://github.com/microsoft/duroxide) durable execution runtime.
 
 Write durable workflows as Python generators. The Rust runtime handles replay, persistence, and fault tolerance.
 
