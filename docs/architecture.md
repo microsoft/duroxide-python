@@ -1,6 +1,6 @@
 # Architecture
 
-duroxide-python is a Python wrapper around the Rust [duroxide](https://github.com/affandar/duroxide) durable execution runtime, built with [PyO3](https://pyo3.rs) and [maturin](https://maturin.rs). This document explains how the interop works, key design decisions, and current limitations.
+duroxide-python is a Python wrapper around the Rust [duroxide](https://github.com/microsoft/duroxide) durable execution runtime, built with [PyO3](https://pyo3.rs) and [maturin](https://maturin.rs). This document explains how the interop works, key design decisions, and current limitations.
 
 ## Overview
 
