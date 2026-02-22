@@ -1,11 +1,3 @@
-# ⚠️ This repository has moved
-
-**This repo has been relocated to [microsoft/duroxide-python](https://github.com/microsoft/duroxide-python).**
-
-All future development will happen there. This repository is archived and will no longer receive updates.
-
----
-
 # duroxide-python
 
 Python SDK for the [Duroxide](https://github.com/affandar/duroxide) durable execution runtime.
@@ -243,12 +235,12 @@ Python-only changes (`python/duroxide/`, `tests/`) take effect immediately.
 
 ## Changelog
 
-See [CHANGELOG.md](https://github.com/affandar/duroxide-python/blob/main/CHANGELOG.md) for release notes.
+See [CHANGELOG.md](https://github.com/microsoft/duroxide-python/blob/main/CHANGELOG.md) for release notes.
 
 ## Documentation
 
-- [User Guide](https://github.com/affandar/duroxide-python/blob/main/docs/user-guide.md) — orchestration patterns, activities, providers, tracing, determinism rules
-- [Architecture](https://github.com/affandar/duroxide-python/blob/main/docs/architecture.md) — PyO3 interop, GIL deadlock fix, generator driver, tracing internals
+- [User Guide](https://github.com/microsoft/duroxide-python/blob/main/docs/user-guide.md) — orchestration patterns, activities, providers, tracing, determinism rules
+- [Architecture](https://github.com/microsoft/duroxide-python/blob/main/docs/architecture.md) — PyO3 interop, GIL deadlock fix, generator driver, tracing internals
 
 ## License
 
