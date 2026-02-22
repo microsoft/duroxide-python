@@ -188,15 +188,7 @@ def test_fan_out_fan_in(provider):
             a = ctx.schedule_activity("Greetings", "Gabbar")
             b = ctx.schedule_activity("Greetings", "Samba")
             results = yield ctx.all([a, b])
-            vals = []
-            for r in results:
-                v = r.get("ok", r.get("err"))
-                if isinstance(v, str):
-                    try:
-                        v = json.loads(v)
-                    except (json.JSONDecodeError, TypeError):
-                        pass
-                vals.append(v)
+            vals = [r.get("ok", r.get("err")) for r in results]
             vals.sort()
             return f"{vals[0]}, {vals[1]}"
 
@@ -263,13 +255,7 @@ def test_sub_orchestration_basic(provider):
         @rt.register_orchestration("Parent")
         def parent(ctx, input):
             r = yield ctx.schedule_sub_orchestration("ChildUpper", input)
-            val = r
-            if isinstance(val, str):
-                try:
-                    val = json.loads(val)
-                except (json.JSONDecodeError, TypeError):
-                    pass
-            return f"parent:{val}"
+            return f"parent:{r}"
 
     result = run_orchestration(provider, "Parent", "hi", setup)
     assert result.status == "Completed"
@@ -299,11 +285,6 @@ def test_sub_orchestration_fan_out(provider):
             for r in results:
                 v = r.get("ok", r.get("err"))
                 if isinstance(v, str):
-                    try:
-                        v = json.loads(v)
-                    except (json.JSONDecodeError, TypeError):
-                        pass
-                if isinstance(v, str):
                     v = int(v)
                 total += v
             return f"total={total}"
@@ -327,24 +308,12 @@ def test_sub_orchestration_chained(provider):
         @rt.register_orchestration("Mid")
         def mid(ctx, input):
             r = yield ctx.schedule_sub_orchestration("Leaf", input)
-            val = r
-            if isinstance(val, str):
-                try:
-                    val = json.loads(val)
-                except (json.JSONDecodeError, TypeError):
-                    pass
-            return f"{val}-mid"
+            return f"{r}-mid"
 
         @rt.register_orchestration("Root")
         def root(ctx, input):
             r = yield ctx.schedule_sub_orchestration("Mid", input)
-            val = r
-            if isinstance(val, str):
-                try:
-                    val = json.loads(val)
-                except (json.JSONDecodeError, TypeError):
-                    pass
-            return f"root:{val}"
+            return f"root:{r}"
 
     result = run_orchestration(provider, "Root", "a", setup)
     assert result.status == "Completed"
@@ -573,14 +542,7 @@ def test_join_with_timer(provider):
 
     result = run_orchestration(provider, "JoinTimer", None, setup)
     assert result.status == "Completed"
-    # activity result is JSON-encoded string
-    activity_val = result.output["activity"]
-    if isinstance(activity_val, str):
-        try:
-            activity_val = json.loads(activity_val)
-        except (json.JSONDecodeError, TypeError):
-            pass
-    assert activity_val == "task_done"
+    assert result.output["activity"] == "task_done"
     assert result.output["timer"] is None
 
 

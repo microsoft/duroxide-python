@@ -1,5 +1,18 @@
 # duroxide-python — Copilot Instructions
 
+> **🚨 STOP: DO NOT `git commit` OR `git push` WITHOUT EXPLICIT USER PERMISSION 🚨**
+>
+> Always ask before committing or pushing. Never assume.
+
+## ⚠️ SDK Symmetry — duroxide-python & duroxide-node MUST stay in sync
+
+When making changes to this SDK, **always** check `../duroxide-node` for symmetry:
+1. **Bug fixes**: If you fix a bug here, apply the same fix in duroxide-node (and vice versa)
+2. **API parity**: Every public API in one SDK must have an equivalent in the other (adjusted for language idioms — snake_case in Python, camelCase in JS)
+3. **Test parity**: Every test in one SDK must have a corresponding test in the other
+4. **Feature parity**: New duroxide features exposed in one SDK must be exposed in both
+5. **Rust handler code** (`src/handlers.rs`): Both SDKs share the same interop architecture — `execute_task`, `make_select_future`, `make_join_future` should be kept structurally identical
+
 ## Project Overview
 
 **duroxide-python** is a Python SDK for the duroxide durable execution runtime. It wraps the Rust duroxide library via PyO3/maturin, providing a generator-based API for writing deterministic, replayable workflows.

@@ -70,13 +70,7 @@ class TestAllMixedTypes:
         result = run_orchestration(provider, "AllActivityTimer", None, setup)
         assert result.status == "Completed"
         assert len(result.output) == 2
-        act_val = result.output[0]["ok"]
-        if isinstance(act_val, str):
-            try:
-                act_val = json.loads(act_val)
-            except (json.JSONDecodeError, TypeError):
-                pass
-        assert act_val == "done-work"
+        assert result.output[0]["ok"] == "done-work"
         assert result.output[1]["ok"] is None
 
     def test_joins_activity_and_wait_event(self, provider):
@@ -103,20 +97,8 @@ class TestAllMixedTypes:
 
             assert result.status == "Completed"
             assert len(result.output) == 2
-            act_val = result.output[0]["ok"]
-            if isinstance(act_val, str):
-                try:
-                    act_val = json.loads(act_val)
-                except (json.JSONDecodeError, TypeError):
-                    pass
-            assert act_val == "quick-go"
-            evt_val = result.output[1]["ok"]
-            if isinstance(evt_val, str):
-                try:
-                    evt_val = json.loads(evt_val)
-                except (json.JSONDecodeError, TypeError):
-                    pass
-            assert evt_val == {"msg": "hi"}
+            assert result.output[0]["ok"] == "quick-go"
+            assert result.output[1]["ok"] == {"msg": "hi"}
         finally:
             runtime.shutdown(100)
 
@@ -135,6 +117,40 @@ class TestAllMixedTypes:
         assert len(result.output) == 2
         assert result.output[0]["ok"] is None
         assert result.output[1]["ok"] is None
+
+    def test_joins_activity_and_dequeue_event(self, provider):
+        instance_id = uid("all-deq")
+        client = Client(provider)
+        runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+
+        runtime.register_activity("Quick", lambda ctx, inp: f"quick-{inp}")
+
+        @runtime.register_orchestration("AllActivityDequeue")
+        def all_act_dequeue(ctx, input):
+            results = yield ctx.all([
+                ctx.schedule_activity("Quick", "go"),
+                ctx.dequeue_event("inbox"),
+            ])
+            return results
+
+        runtime.start()
+        try:
+            client.start_orchestration(instance_id, "AllActivityDequeue", None)
+            time.sleep(0.5)
+            client.enqueue_event(instance_id, "inbox", {"prompt": "HELLO"})
+            result = client.wait_for_orchestration(instance_id, 10_000)
+
+            assert result.status == "Completed"
+            assert len(result.output) == 2
+            assert result.output[0]["ok"] == "quick-go"
+            # Verify dequeue value is properly structured, not double-serialized
+            val = result.output[1]["ok"]
+            assert isinstance(val, dict), (
+                f"all() dequeue value should be a dict, not {type(val).__name__}"
+            )
+            assert val == {"prompt": "HELLO"}
+        finally:
+            runtime.shutdown(100)
 
 
 # ─── ctx.race() with mixed task types ────────────────────────────
@@ -156,13 +172,7 @@ class TestRaceMixedTypes:
         result = run_orchestration(provider, "RaceActTimer", None, setup)
         assert result.status == "Completed"
         assert result.output["index"] == 0
-        val = result.output["value"]
-        if isinstance(val, str):
-            try:
-                val = json.loads(val)
-            except (json.JSONDecodeError, TypeError):
-                pass
-        assert val == "fast-go"
+        assert result.output["value"] == "fast-go"
 
     def test_races_timer_vs_activity_timer_wins_cooperative_cancel(self, provider):
         instance_id = uid("race-timer-act")
@@ -201,7 +211,7 @@ class TestRaceMixedTypes:
 
             assert result.status == "Completed"
             assert result.output["index"] == 0
-            assert result.output["value"] == "null"
+            assert result.output["value"] is None
 
             # Wait for the cancellation signal to propagate
             for _ in range(60):
@@ -234,13 +244,7 @@ class TestRaceMixedTypes:
 
             assert result.status == "Completed"
             assert result.output["index"] == 0
-            val = result.output["value"]
-            if isinstance(val, str):
-                try:
-                    val = json.loads(val)
-                except (json.JSONDecodeError, TypeError):
-                    pass
-            assert val == {"ok": True}
+            assert result.output["value"] == {"ok": True}
         finally:
             runtime.shutdown(100)
 
@@ -257,3 +261,130 @@ class TestRaceMixedTypes:
         result = run_orchestration(provider, "RaceTwoTimers", None, setup)
         assert result.status == "Completed"
         assert result.output["index"] == 0
+
+    def test_race_dequeue_event_not_double_serialized(self, provider):
+        """Regression test for duroxide#59: race(timer, dequeue_event) double-serializes value."""
+        instance_id = uid("race-deq")
+        client = Client(provider)
+        runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+
+        @runtime.register_orchestration("RaceDequeue")
+        def race_dequeue(ctx, input):
+            winner = yield ctx.race(
+                ctx.schedule_timer(60000),
+                ctx.dequeue_event("messages"),
+            )
+            return winner
+
+        runtime.start()
+        try:
+            client.start_orchestration(instance_id, "RaceDequeue", None)
+            time.sleep(0.5)
+            # Pass object directly — enqueue_event handles json.dumps internally
+            client.enqueue_event(instance_id, "messages", {"prompt": "HELLO"})
+            result = client.wait_for_orchestration(instance_id, 10_000)
+
+            assert result.status == "Completed"
+            assert result.output["index"] == 1
+
+            # Before the fix, value was double-serialized: a string needing two json.loads() calls.
+            # After the fix, value is the properly parsed object after one parse.
+            val = result.output["value"]
+            assert isinstance(val, dict), (
+                f"race dequeue value should be a dict, not {type(val).__name__}"
+            )
+            assert val == {"prompt": "HELLO"}
+        finally:
+            runtime.shutdown(100)
+
+
+# ─── Type preservation through all() and race() ─────────────────
+
+
+class TestTypePreservation:
+    def test_all_preserves_all_value_types(self, provider):
+        def setup(rt):
+            rt.register_activity("ReturnString", lambda ctx, inp: "hello")
+            rt.register_activity("ReturnNumber", lambda ctx, inp: 42)
+            rt.register_activity("ReturnObject", lambda ctx, inp: {"key": "val"})
+            rt.register_activity("ReturnArray", lambda ctx, inp: [1, 2, 3])
+            rt.register_activity("ReturnNull", lambda ctx, inp: None)
+            rt.register_activity("ReturnBool", lambda ctx, inp: True)
+
+            @rt.register_orchestration("AllTypes")
+            def all_types(ctx, input):
+                return (yield ctx.all([
+                    ctx.schedule_activity("ReturnString", None),
+                    ctx.schedule_activity("ReturnNumber", None),
+                    ctx.schedule_activity("ReturnObject", None),
+                    ctx.schedule_activity("ReturnArray", None),
+                    ctx.schedule_activity("ReturnNull", None),
+                    ctx.schedule_activity("ReturnBool", None),
+                ]))
+
+        result = run_orchestration(provider, "AllTypes", None, setup)
+        assert result.status == "Completed"
+        vals = [r["ok"] for r in result.output]
+
+        assert vals[0] == "hello"
+        assert isinstance(vals[0], str)
+
+        assert vals[1] == 42
+        assert isinstance(vals[1], int)
+
+        assert vals[2] == {"key": "val"}
+        assert isinstance(vals[2], dict)
+
+        assert vals[3] == [1, 2, 3]
+        assert isinstance(vals[3], list)
+
+        assert vals[4] is None
+
+        assert vals[5] is True
+        assert isinstance(vals[5], bool)
+
+    def test_race_preserves_all_value_types(self, provider):
+        # Test string
+        def setup_str(rt):
+            rt.register_activity("FastStr", lambda ctx, inp: "hello")
+
+            @rt.register_orchestration("RaceString")
+            def race_str(ctx, input):
+                return (yield ctx.race(
+                    ctx.schedule_activity("FastStr", None),
+                    ctx.schedule_timer(60000),
+                ))
+
+        r1 = run_orchestration(provider, "RaceString", None, setup_str)
+        assert r1.output["value"] == "hello"
+        assert isinstance(r1.output["value"], str)
+
+        # Test number
+        def setup_num(rt):
+            rt.register_activity("FastNum", lambda ctx, inp: 42)
+
+            @rt.register_orchestration("RaceNumber")
+            def race_num(ctx, input):
+                return (yield ctx.race(
+                    ctx.schedule_activity("FastNum", None),
+                    ctx.schedule_timer(60000),
+                ))
+
+        r2 = run_orchestration(provider, "RaceNumber", None, setup_num)
+        assert r2.output["value"] == 42
+        assert isinstance(r2.output["value"], int)
+
+        # Test object
+        def setup_obj(rt):
+            rt.register_activity("FastObj", lambda ctx, inp: {"key": "val"})
+
+            @rt.register_orchestration("RaceObject")
+            def race_obj(ctx, input):
+                return (yield ctx.race(
+                    ctx.schedule_activity("FastObj", None),
+                    ctx.schedule_timer(60000),
+                ))
+
+        r3 = run_orchestration(provider, "RaceObject", None, setup_obj)
+        assert r3.output["value"] == {"key": "val"}
+        assert isinstance(r3.output["value"], dict)

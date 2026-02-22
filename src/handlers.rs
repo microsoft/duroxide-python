@@ -457,12 +457,22 @@ impl PyOrchestrationHandler {
                 let f2 = make_select_future(ctx, t2);
 
                 match ctx.select2(f1, f2).await {
-                    duroxide::Either2::First(val) => TaskResult::Ok(
-                        serde_json::json!({ "index": 0, "value": val }).to_string(),
-                    ),
-                    duroxide::Either2::Second(val) => TaskResult::Ok(
-                        serde_json::json!({ "index": 1, "value": val }).to_string(),
-                    ),
+                    duroxide::Either2::First(val) => {
+                        // Parse val as JSON so it's embedded as a structured value,
+                        // not double-serialized as a JSON string.
+                        let parsed = serde_json::from_str::<serde_json::Value>(&val)
+                            .unwrap_or(serde_json::Value::String(val));
+                        TaskResult::Ok(
+                            serde_json::json!({ "index": 0, "value": parsed }).to_string(),
+                        )
+                    }
+                    duroxide::Either2::Second(val) => {
+                        let parsed = serde_json::from_str::<serde_json::Value>(&val)
+                            .unwrap_or(serde_json::Value::String(val));
+                        TaskResult::Ok(
+                            serde_json::json!({ "index": 1, "value": parsed }).to_string(),
+                        )
+                    }
                 }
             }
         }
@@ -588,6 +598,20 @@ fn make_select_future(
     }
 }
 
+/// Wrap a raw string value as `{"ok": <parsed>}` or `{"err": <parsed>}` JSON.
+/// Parses the string as JSON first to avoid double-serialization.
+fn wrap_ok(val: String) -> String {
+    let parsed = serde_json::from_str::<serde_json::Value>(&val)
+        .unwrap_or(serde_json::Value::String(val));
+    serde_json::json!({ "ok": parsed }).to_string()
+}
+
+fn wrap_err(val: String) -> String {
+    let parsed = serde_json::from_str::<serde_json::Value>(&val)
+        .unwrap_or(serde_json::Value::String(val));
+    serde_json::json!({ "err": parsed }).to_string()
+}
+
 /// Convert a ScheduledTask into a type-erased future returning `{ok:v}/{err:e}` JSON for use in join.
 fn make_join_future(
     ctx: &OrchestrationContext,
@@ -596,8 +620,8 @@ fn make_join_future(
     match task {
         ScheduledTask::Activity { name, input } => Box::pin(async move {
             match ctx.schedule_activity(&name, input).await {
-                Ok(v) => serde_json::json!({ "ok": v }).to_string(),
-                Err(e) => serde_json::json!({ "err": e }).to_string(),
+                Ok(v) => wrap_ok(v),
+                Err(e) => wrap_err(e),
             }
         }),
         ScheduledTask::ActivityWithSession {
@@ -609,8 +633,8 @@ fn make_join_future(
                 .schedule_activity_on_session(&name, input, session_id)
                 .await
             {
-                Ok(v) => serde_json::json!({ "ok": v }).to_string(),
-                Err(e) => serde_json::json!({ "err": e }).to_string(),
+                Ok(v) => wrap_ok(v),
+                Err(e) => wrap_err(e),
             }
         }),
         ScheduledTask::ActivityWithRetry {
@@ -623,8 +647,8 @@ fn make_join_future(
                 .schedule_activity_with_retry(&name, input, policy)
                 .await
             {
-                Ok(v) => serde_json::json!({ "ok": v }).to_string(),
-                Err(e) => serde_json::json!({ "err": e }).to_string(),
+                Ok(v) => wrap_ok(v),
+                Err(e) => wrap_err(e),
             }
         }),
         ScheduledTask::Timer { delay_ms } => Box::pin(async move {
@@ -633,12 +657,12 @@ fn make_join_future(
         }),
         ScheduledTask::WaitEvent { name } => Box::pin(async move {
             let data = ctx.schedule_wait(&name).await;
-            serde_json::json!({ "ok": data }).to_string()
+            wrap_ok(data)
         }),
         ScheduledTask::SubOrchestration { name, input } => Box::pin(async move {
             match ctx.schedule_sub_orchestration(&name, input).await {
-                Ok(v) => serde_json::json!({ "ok": v }).to_string(),
-                Err(e) => serde_json::json!({ "err": e }).to_string(),
+                Ok(v) => wrap_ok(v),
+                Err(e) => wrap_err(e),
             }
         }),
         ScheduledTask::SubOrchestrationWithId {
@@ -650,8 +674,8 @@ fn make_join_future(
                 .schedule_sub_orchestration_with_id(&name, instance_id, input)
                 .await
             {
-                Ok(v) => serde_json::json!({ "ok": v }).to_string(),
-                Err(e) => serde_json::json!({ "err": e }).to_string(),
+                Ok(v) => wrap_ok(v),
+                Err(e) => wrap_err(e),
             }
         }),
         ScheduledTask::SubOrchestrationVersioned {
@@ -663,8 +687,8 @@ fn make_join_future(
                 .schedule_sub_orchestration_versioned(&name, version, input)
                 .await
             {
-                Ok(v) => serde_json::json!({ "ok": v }).to_string(),
-                Err(e) => serde_json::json!({ "err": e }).to_string(),
+                Ok(v) => wrap_ok(v),
+                Err(e) => wrap_err(e),
             }
         }),
         ScheduledTask::SubOrchestrationVersionedWithId {
@@ -677,13 +701,13 @@ fn make_join_future(
                 .schedule_sub_orchestration_versioned_with_id(&name, version, instance_id, input)
                 .await
             {
-                Ok(v) => serde_json::json!({ "ok": v }).to_string(),
-                Err(e) => serde_json::json!({ "err": e }).to_string(),
+                Ok(v) => wrap_ok(v),
+                Err(e) => wrap_err(e),
             }
         }),
         ScheduledTask::DequeueEvent { queue_name } => Box::pin(async move {
             let data = ctx.dequeue_event(&queue_name).await;
-            serde_json::json!({ "ok": data }).to_string()
+            wrap_ok(data)
         }),
         ScheduledTask::ActivityWithRetryOnSession {
             name,
@@ -696,8 +720,8 @@ fn make_join_future(
                 .schedule_activity_with_retry_on_session(&name, input, policy, &session_id)
                 .await
             {
-                Ok(v) => serde_json::json!({ "ok": v }).to_string(),
-                Err(e) => serde_json::json!({ "err": e }).to_string(),
+                Ok(v) => wrap_ok(v),
+                Err(e) => wrap_err(e),
             }
         }),
         _ => Box::pin(async {
