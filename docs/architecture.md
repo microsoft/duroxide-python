@@ -393,6 +393,43 @@ yield ctx.dequeue_event("inbox")
                          (QueueSubscribed + QueueEventDelivered events)
 ```
 
+## Limitations
+
+### Multi-Step Parallel Blocks Require Sub-Orchestrations
+
+In the Rust core SDK, arbitrary `async {}` blocks can be composed with `join()`/`select2()`/`select3()`. In the Python SDK, orchestrations are generator functions — `all()` and `race()` only accept **single task descriptors** (activity, sub-orchestration, timer, or event). Multi-step blocks (sequential activities with control flow) cannot be directly passed to `all()`/`race()`.
+
+**Workaround**: Wrap each multi-step block as a sub-orchestration, then use `all()`/`race()` on the sub-orchestration descriptors.
+
+```python
+# ❌ Cannot race multi-step blocks directly
+# (each yield is a single step — no block composition)
+
+# ✅ Wrap blocks as sub-orchestrations
+@runtime.register_orchestration("FastBlock")
+def fast_block(ctx, input):
+    a = yield ctx.schedule_activity("Fast", "1")
+    b = yield ctx.schedule_activity("Fast", "2")
+    return f"[{a},{b}]"
+
+@runtime.register_orchestration("SlowBlock")
+def slow_block(ctx, input):
+    yield ctx.schedule_timer(60000)
+    a = yield ctx.schedule_activity("Slow", "1")
+    return f"[{a}]"
+
+@runtime.register_orchestration("Parent")
+def parent(ctx, input):
+    # Race two multi-step blocks via sub-orchestrations
+    winner = yield ctx.race(
+        ctx.schedule_sub_orchestration("FastBlock", ""),
+        ctx.schedule_sub_orchestration("SlowBlock", ""),
+    )
+    return f"winner:{winner['index']}"
+```
+
+This is the **only fundamental limitation** vs the Rust core — all other features (typed APIs, cancellation propagation, etc.) have full parity. See `test_async_blocks.py` for 12 comprehensive examples of this pattern.
+
 ### Continue-as-New Semantics
 
 When an orchestration calls `continue_as_new()`, pending queue messages are preserved. The new execution picks up where the old one left off — messages are not lost or redelivered. This enables the "eternal orchestration with mailbox" pattern used in chat bots and actor-style workflows.

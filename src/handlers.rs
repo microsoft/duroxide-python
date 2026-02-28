@@ -1,6 +1,6 @@
 use pyo3::prelude::*;
 use std::collections::HashMap;
-use std::sync::Mutex;
+use parking_lot::Mutex;
 use std::time::Duration;
 
 use duroxide::{ActivityContext, OrchestrationContext};
@@ -27,19 +27,19 @@ struct ActivityCtxGuard {
 
 impl Drop for ActivityCtxGuard {
     fn drop(&mut self) {
-        ACTIVITY_CTXS.lock().unwrap().remove(&self.token);
+        ACTIVITY_CTXS.lock().remove(&self.token);
     }
 }
 
 /// Called from Python to check if an activity has been cancelled.
 pub fn activity_is_cancelled(token: &str) -> bool {
-    let map = ACTIVITY_CTXS.lock().unwrap();
+    let map = ACTIVITY_CTXS.lock();
     map.get(token).is_some_and(|ctx| ctx.is_cancelled())
 }
 
 /// Called from Python to get a Client from the stored ActivityContext.
 pub fn activity_get_client(token: &str) -> Option<crate::client::PyClient> {
-    let map = ACTIVITY_CTXS.lock().unwrap();
+    let map = ACTIVITY_CTXS.lock();
     map.get(token).map(|ctx| {
         let client = ctx.get_client();
         crate::client::PyClient::from_client(client)
@@ -48,7 +48,7 @@ pub fn activity_get_client(token: &str) -> Option<crate::client::PyClient> {
 
 /// Called from Python to trace through the Rust ActivityContext.
 pub fn activity_trace(token: &str, level: &str, message: &str) {
-    let map = ACTIVITY_CTXS.lock().unwrap();
+    let map = ACTIVITY_CTXS.lock();
     if let Some(ctx) = map.get(token) {
         match level {
             "warn" => ctx.trace_warn(message),
@@ -87,7 +87,6 @@ impl Drop for OrchestrationInvokeGuard {
     fn drop(&mut self) {
         ORCHESTRATION_CTXS
             .lock()
-            .unwrap()
             .remove(&self.instance_id);
 
         let Some(gen_id) = self.gen_id.take() else {
@@ -106,7 +105,7 @@ impl Drop for OrchestrationInvokeGuard {
 
 /// Called from Python to trace through the Rust OrchestrationContext.
 pub fn orchestration_trace(instance_id: &str, level: &str, message: &str) {
-    let map = ORCHESTRATION_CTXS.lock().unwrap();
+    let map = ORCHESTRATION_CTXS.lock();
     if let Some(ctx) = map.get(instance_id) {
         ctx.trace(level, message);
     }
@@ -114,7 +113,7 @@ pub fn orchestration_trace(instance_id: &str, level: &str, message: &str) {
 
 /// Called from Python to set custom status on the OrchestrationContext.
 pub fn orchestration_set_custom_status(instance_id: &str, status: &str) {
-    let map = ORCHESTRATION_CTXS.lock().unwrap();
+    let map = ORCHESTRATION_CTXS.lock();
     if let Some(ctx) = map.get(instance_id) {
         ctx.set_custom_status(status);
     }
@@ -122,7 +121,7 @@ pub fn orchestration_set_custom_status(instance_id: &str, status: &str) {
 
 /// Called from Python to reset (clear) custom status on the OrchestrationContext.
 pub fn orchestration_reset_custom_status(instance_id: &str) {
-    let map = ORCHESTRATION_CTXS.lock().unwrap();
+    let map = ORCHESTRATION_CTXS.lock();
     if let Some(ctx) = map.get(instance_id) {
         ctx.reset_custom_status();
     }
@@ -130,7 +129,7 @@ pub fn orchestration_reset_custom_status(instance_id: &str) {
 
 /// Called from Python to read the current custom status from the OrchestrationContext.
 pub fn orchestration_get_custom_status(instance_id: &str) -> Option<String> {
-    let map = ORCHESTRATION_CTXS.lock().unwrap();
+    let map = ORCHESTRATION_CTXS.lock();
     map.get(instance_id).and_then(|ctx| ctx.get_custom_status())
 }
 
@@ -152,7 +151,6 @@ impl PyActivityHandler {
         let token = new_activity_token();
         ACTIVITY_CTXS
             .lock()
-            .unwrap()
             .insert(token.clone(), ctx.clone());
         let _guard = ActivityCtxGuard {
             token: token.clone(),
@@ -744,7 +742,6 @@ impl duroxide::runtime::OrchestrationHandler for PyOrchestrationHandler {
         // Store ctx in global map so Python trace calls can delegate to it
         ORCHESTRATION_CTXS
             .lock()
-            .unwrap()
             .insert(instance_id.clone(), ctx.clone());
         let mut guard =
             OrchestrationInvokeGuard::new(

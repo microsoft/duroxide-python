@@ -9,7 +9,7 @@ ActivityContext provides tracing and cancellation for activity functions.
 """
 
 import json
-from typing import Optional
+from typing import Any, Optional
 
 from duroxide._duroxide import (
     orchestration_trace_log,
@@ -214,6 +214,175 @@ class OrchestrationContext:
             "version": version,
         }
 
+    # ─── Typed scheduling (auto JSON serialization/deserialization) ──
+
+    def schedule_activity_typed(
+        self, name: str, input: Any = None, result_type: type = None
+    ) -> dict:
+        """Schedule activity with auto JSON serialization/deserialization.
+
+        Input is auto-serialized via json.dumps if not already a string.
+        Result is auto-deserialized via json.loads.
+        """
+        raw_input = input if isinstance(input, str) else json.dumps(input)
+        return {
+            "type": "activity",
+            "name": name,
+            "input": raw_input,
+            "_typed": True,
+        }
+
+    def schedule_sub_orchestration_typed(
+        self, name: str, input: Any = None, result_type: type = None
+    ) -> dict:
+        """Schedule sub-orchestration with auto JSON serialization/deserialization.
+
+        Input is auto-serialized via json.dumps if not already a string.
+        Result is auto-deserialized via json.loads.
+        """
+        raw_input = input if isinstance(input, str) else json.dumps(input)
+        return {
+            "type": "subOrchestration",
+            "name": name,
+            "input": raw_input,
+            "_typed": True,
+        }
+
+    def schedule_activity_on_session_typed(
+        self, name: str, input: Any = None, session_id: str = None
+    ) -> dict:
+        """Schedule activity with session affinity and auto JSON serialization/deserialization.
+
+        Input is auto-serialized via json.dumps if not already a string.
+        Result is auto-deserialized via json.loads.
+        """
+        raw_input = input if isinstance(input, str) else json.dumps(input)
+        return {
+            "type": "activityWithSession",
+            "name": name,
+            "input": raw_input,
+            "sessionId": session_id,
+            "_typed": True,
+        }
+
+    def schedule_activity_with_retry_typed(
+        self, name: str, input: Any = None, retry: dict = None
+    ) -> dict:
+        """Schedule activity with retry policy and auto JSON serialization/deserialization.
+
+        Input is auto-serialized via json.dumps if not already a string.
+        Result is auto-deserialized via json.loads.
+        """
+        raw_input = input if isinstance(input, str) else json.dumps(input)
+        retry = retry or {}
+        return {
+            "type": "activityWithRetry",
+            "name": name,
+            "input": raw_input,
+            "retry": {
+                "maxAttempts": retry.get("max_attempts", retry.get("maxAttempts", 3)),
+                "timeoutMs": retry.get("timeout_ms", retry.get("timeoutMs")),
+                "totalTimeoutMs": retry.get(
+                    "total_timeout_ms", retry.get("totalTimeoutMs")
+                ),
+                "backoff": retry.get("backoff"),
+            },
+            "_typed": True,
+        }
+
+    def schedule_activity_with_retry_on_session_typed(
+        self, name: str, input: Any = None, retry: dict = None, session_id: str = None
+    ) -> dict:
+        """Schedule activity with retry policy, session affinity, and auto JSON serde.
+
+        Input is auto-serialized via json.dumps if not already a string.
+        Result is auto-deserialized via json.loads.
+        """
+        raw_input = input if isinstance(input, str) else json.dumps(input)
+        retry = retry or {}
+        return {
+            "type": "activityWithRetryOnSession",
+            "name": name,
+            "input": raw_input,
+            "retry": {
+                "maxAttempts": retry.get("max_attempts", retry.get("maxAttempts", 3)),
+                "timeoutMs": retry.get("timeout_ms", retry.get("timeoutMs")),
+                "totalTimeoutMs": retry.get(
+                    "total_timeout_ms", retry.get("totalTimeoutMs")
+                ),
+                "backoff": retry.get("backoff"),
+            },
+            "sessionId": session_id,
+            "_typed": True,
+        }
+
+    def wait_for_event_typed(self, name: str) -> dict:
+        """Wait for an external event with auto JSON deserialization.
+
+        Result is auto-deserialized via json.loads.
+        """
+        return {"type": "waitEvent", "name": name, "_typed": True}
+
+    def dequeue_event_typed(self, queue_name: str) -> dict:
+        """Dequeue the next message from a named event queue with auto JSON deserialization.
+
+        Result is auto-deserialized via json.loads.
+        """
+        return {"type": "dequeueEvent", "queueName": queue_name, "_typed": True}
+
+    def schedule_sub_orchestration_with_id_typed(
+        self, name: str, instance_id: str, input: Any = None
+    ) -> dict:
+        """Schedule sub-orchestration with a specific instance ID and auto JSON serde.
+
+        Input is auto-serialized via json.dumps if not already a string.
+        Result is auto-deserialized via json.loads.
+        """
+        raw_input = input if isinstance(input, str) else json.dumps(input)
+        return {
+            "type": "subOrchestrationWithId",
+            "name": name,
+            "instanceId": instance_id,
+            "input": raw_input,
+            "_typed": True,
+        }
+
+    def start_orchestration_typed(
+        self, name: str, instance_id: str, input: Any = None
+    ) -> dict:
+        """Start a detached orchestration (fire-and-forget) with auto JSON input serialization.
+
+        Input is auto-serialized via json.dumps if not already a string.
+        """
+        raw_input = input if isinstance(input, str) else json.dumps(input)
+        return {
+            "type": "orchestration",
+            "name": name,
+            "instanceId": instance_id,
+            "input": raw_input,
+        }
+
+    def start_orchestration_versioned_typed(
+        self, name: str, version: str, instance_id: str, input: Any = None
+    ) -> dict:
+        """Start a versioned detached orchestration (fire-and-forget) with auto JSON input serialization."""
+        raw_input = input if isinstance(input, str) else json.dumps(input)
+        return {
+            "type": "orchestrationVersioned",
+            "name": name,
+            "version": version,
+            "instanceId": instance_id,
+            "input": raw_input,
+        }
+
+    def continue_as_new_typed(self, input: Any = None) -> dict:
+        """Continue the orchestration as a new instance with auto JSON input serialization."""
+        raw_input = input if isinstance(input, str) else json.dumps(input)
+        return {
+            "type": "continueAsNew",
+            "input": raw_input,
+        }
+
     # ─── Composition helpers ───────────────────────────────
 
     def all(self, tasks: list) -> dict:
@@ -223,6 +392,20 @@ class OrchestrationContext:
     def race(self, *tasks) -> dict:
         """Select/race multiple tasks (wait for first). Yield the return value."""
         return {"type": "select", "tasks": list(tasks)}
+
+    def all_typed(self, tasks: list) -> dict:
+        """Like all() but auto-unwraps ok values from join results.
+
+        Returns a list of result values instead of [{"ok": val}, ...].
+        """
+        return {"type": "join", "tasks": tasks, "_typed_all": True}
+
+    def race_typed(self, *tasks) -> dict:
+        """Like race() but marks result for typed processing.
+
+        Returns {"index": N, "value": val} with value already parsed.
+        """
+        return {"type": "select", "tasks": list(tasks), "_typed_race": True}
 
     # ─── Custom Status (fire-and-forget, delegates to Rust ctx) ──
 

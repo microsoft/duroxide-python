@@ -20,6 +20,9 @@ from duroxide.context import OrchestrationContext
 _generators: dict = {}
 _next_generator_id = 1
 
+# Track last yielded task per generator for typed result processing
+_last_tasks: dict = {}
+
 
 def create_generator(payload_json: str) -> str:
     """Create a generator and drive to first yield.
@@ -125,13 +128,35 @@ def dispose_generator(id_str: str) -> str:
     """
     gen_id = int(id_str)
     _generators.pop(gen_id, None)
+    _last_tasks.pop(gen_id, None)
     return "ok"
+
+
+def _auto_parse_typed_result(last_task, value):
+    """Transform result based on typed task metadata."""
+    if last_task is None or value is None:
+        return value
+    if last_task.get("_typed_all") and isinstance(value, list):
+        # Join results: [{"ok": val}, ...] → [val, ...]
+        return [
+            item.get("ok") if isinstance(item, dict) and "ok" in item else item
+            for item in value
+        ]
+    # _typed and _typed_race: no additional transformation needed
+    # (single results and race results are already auto-deserialized)
+    return value
 
 
 def _drive_step(generator_id: int, gen, value) -> str:
     """Drive a generator one step forward with a value."""
     try:
+        # Auto-parse typed results before sending to generator
+        last_task = _last_tasks.get(generator_id)
+        if last_task is not None and value is not None:
+            value = _auto_parse_typed_result(last_task, value)
+
         task = gen.send(value)
+        _last_tasks[generator_id] = task
         return json.dumps(
             {
                 "status": "yielded",
@@ -141,6 +166,7 @@ def _drive_step(generator_id: int, gen, value) -> str:
         )
     except StopIteration as e:
         _generators.pop(generator_id, None)
+        _last_tasks.pop(generator_id, None)
         output = e.value
         return json.dumps(
             {
@@ -150,6 +176,7 @@ def _drive_step(generator_id: int, gen, value) -> str:
         )
     except Exception as e:
         _generators.pop(generator_id, None)
+        _last_tasks.pop(generator_id, None)
         return json.dumps({"status": "error", "message": traceback.format_exc()})
 
 
@@ -158,6 +185,7 @@ def _drive_step_with_error(generator_id: int, gen, error) -> str:
     try:
         error_msg = error if isinstance(error, str) else json.dumps(error)
         task = gen.throw(Exception(error_msg))
+        _last_tasks[generator_id] = task
         return json.dumps(
             {
                 "status": "yielded",
@@ -167,6 +195,7 @@ def _drive_step_with_error(generator_id: int, gen, error) -> str:
         )
     except StopIteration as e:
         _generators.pop(generator_id, None)
+        _last_tasks.pop(generator_id, None)
         output = e.value
         return json.dumps(
             {
@@ -176,4 +205,5 @@ def _drive_step_with_error(generator_id: int, gen, error) -> str:
         )
     except Exception as e:
         _generators.pop(generator_id, None)
+        _last_tasks.pop(generator_id, None)
         return json.dumps({"status": "error", "message": traceback.format_exc()})

@@ -700,6 +700,39 @@ def my_workflow_v2(ctx, input):
 
 New orchestrations use the latest version. Running orchestrations stay on their original version until they complete or call `continue_as_new`.
 
+## Multi-Step Parallel Blocks (Sub-Orchestration Pattern)
+
+In Rust, arbitrary async blocks can be composed with `join()`/`select()`. In the Python SDK, `all()`/`race()` only accept single task descriptors — multi-step blocks must be wrapped as sub-orchestrations.
+
+```python
+# Pattern: wrap multi-step logic as a sub-orchestration
+@runtime.register_orchestration("BlockA")
+def block_a(ctx, input):
+    first = yield ctx.schedule_activity("Step", "A1")
+    if "step" in first:
+        second = yield ctx.schedule_activity("Step", "A2")
+        return f"A:[{first},{second}]"
+    return "A:fallback"
+
+@runtime.register_orchestration("BlockB")
+def block_b(ctx, input):
+    yield ctx.schedule_timer(5)
+    result = yield ctx.schedule_activity("Step", "B1")
+    return f"B:[timer,{result}]"
+
+# Parent: join/race sub-orchestration descriptors
+@runtime.register_orchestration("Parent")
+def parent(ctx, input):
+    # Join multiple multi-step blocks
+    a, b = yield ctx.all([
+        ctx.schedule_sub_orchestration("BlockA", ""),
+        ctx.schedule_sub_orchestration("BlockB", ""),
+    ])
+    return f"{a},{b}"
+```
+
+Use `all()` for joining (all must complete) and `race()` for racing (first wins, loser is cancelled). For 3+ way races, nest `race()` calls. See `test_async_blocks.py` for 12 examples covering join, race, nested chains, and timeout patterns.
+
 ## Determinism Rules
 
 Orchestration functions **must be deterministic**. The replay engine re-executes the generator from the beginning on every dispatch, feeding back cached results. If the code path changes, replay breaks.

@@ -71,6 +71,29 @@ def _parse_status(raw):
     )
 
 
+def parse_result(result):
+    """Parse a result from join/race calls.
+
+    Handles these formats:
+    - List of {"ok": val} dicts (from join/all) → [val, ...]
+    - Single {"ok": val} dict → val
+    - Single {"err": val} dict → raises Exception
+
+    Useful for manually processing results from non-typed join/race calls.
+    """
+    if isinstance(result, list):
+        return [
+            item.get("ok") if isinstance(item, dict) and "ok" in item else item
+            for item in result
+        ]
+    if isinstance(result, dict):
+        if "ok" in result:
+            return result["ok"]
+        if "err" in result:
+            raise Exception(result["err"])
+    return result
+
+
 # ─── Public API ───────────────────────────────────────────────────
 
 
@@ -176,6 +199,36 @@ class Client:
             instance_id, queue_name, json.dumps(data)
         )
 
+    # ─── Typed convenience wrappers ────────────────────────
+
+    def start_orchestration_typed(self, instance_id: str, name: str, input=None):
+        """Start an orchestration with auto JSON input serialization."""
+        self.start_orchestration(instance_id, name, input)
+
+    def start_orchestration_versioned_typed(
+        self, instance_id: str, name: str, input, version: str
+    ):
+        """Start a versioned orchestration with auto JSON input serialization."""
+        self.start_orchestration_versioned(instance_id, name, input, version)
+
+    def raise_event_typed(self, instance_id: str, event_name: str, data=None):
+        """Raise an event with auto JSON data serialization."""
+        self.raise_event(instance_id, event_name, data)
+
+    def enqueue_event_typed(self, instance_id: str, queue_name: str, data=None):
+        """Enqueue an event with auto JSON data serialization."""
+        self.enqueue_event(instance_id, queue_name, data)
+
+    def wait_for_orchestration_typed(self, instance_id: str, timeout_ms: int = 30000):
+        """Wait for an orchestration and return the parsed output directly.
+
+        If the orchestration failed, raises an Exception with the error message.
+        """
+        result = self.wait_for_orchestration(instance_id, timeout_ms)
+        if result.status == "Failed":
+            raise Exception(result.error or "Orchestration failed")
+        return result.output
+
     def get_system_metrics(self):
         return self._native.get_system_metrics()
 
@@ -279,6 +332,25 @@ class Runtime:
 
         self._native.register_activity(name, wrapped_fn)
 
+    def register_activity_typed(self, name: str, fn=None):
+        """Register a typed activity. Mirrors Rust core's register_typed.
+        Input is auto-parsed from JSON; output is auto-serialized.
+
+        Usage:
+            @runtime.register_activity_typed("my_activity")
+            def my_activity(ctx, input):  # input is already a dict/object
+                return {"result": "done"}  # return value auto-serialized
+        """
+        if fn is not None:
+            self._register_activity_impl(name, fn)
+            return fn
+
+        def decorator(func):
+            self._register_activity_impl(name, func)
+            return func
+
+        return decorator
+
     def register_orchestration(self, name: str, fn=None):
         """Register an orchestration generator function. Can be used as a decorator.
 
@@ -303,6 +375,12 @@ class Runtime:
 
         return decorator
 
+    def register_orchestration_typed(self, name: str, fn=None):
+        """Register a typed orchestration. Input is auto-parsed; output is auto-serialized.
+        Mirrors Rust core's register_typed on OrchestrationRegistryBuilder.
+        """
+        return self.register_orchestration(name, fn)
+
     def register_orchestration_versioned(self, name: str, version: str, fn=None):
         """Register a versioned orchestration generator function. Can be used as a decorator."""
         if fn is not None:
@@ -318,6 +396,16 @@ class Runtime:
             return func
 
         return decorator
+
+    def register_orchestration_versioned_typed(self, name: str, version: str, fn=None):
+        """Register a typed versioned orchestration. Input is auto-parsed; output is auto-serialized.
+
+        Can be used as a decorator:
+            @runtime.register_orchestration_versioned_typed("MyOrch", "1.0.0")
+            def my_orch(ctx, input):
+                ...
+        """
+        return self.register_orchestration_versioned(name, version, fn)
 
     def start(self):
         """Start the runtime. Blocks until shutdown is called."""
@@ -353,4 +441,5 @@ __all__ = [
     "PyInstanceFilter",
     "PyEvent",
     "init_tracing",
+    "parse_result",
 ]

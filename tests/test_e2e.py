@@ -884,3 +884,349 @@ def test_metrics_snapshot(provider):
         assert snapshot.activity_success >= 1
     finally:
         runtime.shutdown(100)
+
+
+# ─── 28. Detached Orchestration Scheduling ───────────────────────
+
+
+def test_detached_orchestration_scheduling(provider):
+    """Coordinator fires-and-forgets two child orchestrations, then returns immediately."""
+    client = Client(provider)
+    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+
+    runtime.register_activity("Echo", lambda ctx, inp: inp)
+
+    @runtime.register_orchestration("Chained")
+    def chained(ctx, input):
+        yield ctx.schedule_timer(5)
+        return (yield ctx.schedule_activity("Echo", input))
+
+    @runtime.register_orchestration("Coordinator")
+    def coordinator(ctx, input):
+        yield ctx.start_orchestration("Chained", uid("W1"), "A")
+        yield ctx.start_orchestration("Chained", uid("W2"), "B")
+        return "scheduled"
+
+    runtime.start()
+    try:
+        coord_id = uid("Coordinator")
+        client.start_orchestration(coord_id, "Coordinator", None)
+        result = client.wait_for_orchestration(coord_id, 10_000)
+        assert result.status == "Completed"
+        assert result.output == "scheduled"
+
+        r1 = client.wait_for_orchestration(uid("W1"), 10_000)
+        r2 = client.wait_for_orchestration(uid("W2"), 10_000)
+        assert r1.status == "Completed"
+        assert r1.output == "A"
+        assert r2.status == "Completed"
+        assert r2.output == "B"
+    finally:
+        runtime.shutdown(100)
+
+
+# ─── 29. Detached Then Activity ──────────────────────────────────
+
+
+def test_detached_then_activity(provider):
+    """Parent fires-and-forgets child, then awaits activity. Tests replay correctness."""
+    client = Client(provider)
+    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+
+    runtime.register_activity("EchoDT", lambda ctx, inp: inp)
+
+    @runtime.register_orchestration("DetachedChild")
+    def detached_child(ctx, input):
+        yield ctx.schedule_timer(5)
+        return f"child-{input}"
+
+    @runtime.register_orchestration("DetachedParent")
+    def detached_parent(ctx, input):
+        yield ctx.start_orchestration("DetachedChild", uid("detached-child"), "payload")
+        return (yield ctx.schedule_activity("EchoDT", "hello"))
+
+    runtime.start()
+    try:
+        parent_id = uid("DetachedParent")
+        client.start_orchestration(parent_id, "DetachedParent", None)
+        result = client.wait_for_orchestration(parent_id, 10_000)
+        assert result.status == "Completed"
+        assert result.output == "hello"
+
+        child_result = client.wait_for_orchestration(uid("detached-child"), 10_000)
+        assert child_result.status == "Completed"
+        assert child_result.output == "child-payload"
+    finally:
+        runtime.shutdown(100)
+
+
+# ─── 30. Self-Pruning Eternal Orchestration ──────────────────────
+
+
+def test_self_pruning_eternal_orchestration(provider):
+    """Eternal orchestration processes 5 batches with CAN, pruning old executions each cycle."""
+    client = Client(provider)
+    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+
+    runtime.register_activity("ProcessBatch", lambda ctx, inp: f"Processed batch {inp}")
+
+    @runtime.register_activity("PruneSelf")
+    def prune_self(ctx, input):
+        c = ctx.get_client()
+        c.prune_executions(ctx.instance_id, PyPruneOptions(keep_last=1))
+        return "pruned"
+
+    @runtime.register_orchestration("EternalPruner")
+    def eternal_pruner(ctx, input):
+        state = json.loads(input) if isinstance(input, str) else input
+        batch_num = state["batchNum"]
+        total = state["totalBatches"]
+
+        result = yield ctx.schedule_activity("ProcessBatch", batch_num)
+        yield ctx.schedule_activity("PruneSelf", None)
+
+        if batch_num + 1 < total:
+            yield ctx.continue_as_new(json.dumps({
+                "batchNum": batch_num + 1,
+                "totalBatches": total,
+            }))
+            return None
+        else:
+            return result
+
+    runtime.start()
+    try:
+        instance_id = uid("EternalPruner")
+        client.start_orchestration(
+            instance_id, "EternalPruner",
+            json.dumps({"batchNum": 0, "totalBatches": 5}),
+        )
+        result = client.wait_for_orchestration(instance_id, 30_000)
+        assert result.status == "Completed"
+        assert result.output == "Processed batch 4"
+    finally:
+        runtime.shutdown(100)
+
+
+# ─── 31. Config Hot Reload with Persistent Events ────────────────
+
+
+def test_config_hot_reload_persistent_events(provider):
+    """Orchestration drains pending events between work cycles."""
+    client = Client(provider)
+    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+
+    runtime.register_activity("ApplyConfig", lambda ctx, inp: f"applied:{inp}")
+
+    @runtime.register_orchestration("ConfigHotReload")
+    def config_hot_reload(ctx, input):
+        log = []
+
+        for cycle in range(3):
+            # Drain loop: race dequeue vs short timer
+            while True:
+                winner = yield ctx.race(
+                    ctx.dequeue_event("ConfigUpdate"),
+                    ctx.schedule_timer(50),
+                )
+                if winner["index"] == 0:
+                    log.append(winner["value"])
+                else:
+                    break
+
+            log.append(f"cycle:{cycle}")
+            yield ctx.schedule_timer(100)
+            yield ctx.schedule_activity("ApplyConfig", f"c{cycle}")
+
+        # Final drain
+        while True:
+            winner = yield ctx.race(
+                ctx.dequeue_event("ConfigUpdate"),
+                ctx.schedule_timer(50),
+            )
+            if winner["index"] == 0:
+                log.append(winner["value"])
+            else:
+                break
+
+        return ",".join(str(x) for x in log)
+
+    runtime.start()
+    try:
+        instance_id = uid("ConfigHotReload")
+        client.start_orchestration(instance_id, "ConfigHotReload", None)
+        # Enqueue v1 and v2 immediately after start (before first drain completes)
+        client.enqueue_event(instance_id, "ConfigUpdate", "v1")
+        client.enqueue_event(instance_id, "ConfigUpdate", "v2")
+
+        time.sleep(0.3)
+        client.enqueue_event(instance_id, "ConfigUpdate", "v3")
+
+        result = client.wait_for_orchestration(instance_id, 30_000)
+        assert result.status == "Completed"
+        output = result.output
+        # v1 and v2 should appear before cycle:0
+        v1_pos = output.index("v1")
+        v2_pos = output.index("v2")
+        cycle0_pos = output.index("cycle:0")
+        assert v1_pos < cycle0_pos, f"v1 should be before cycle:0, got: {output}"
+        assert v2_pos < cycle0_pos, f"v2 should be before cycle:0, got: {output}"
+        # v3 should appear somewhere in the output
+        assert "v3" in output, f"v3 should be in output, got: {output}"
+    finally:
+        runtime.shutdown(100)
+
+
+# ─── 32. Typed API ───────────────────────────────────────────────
+
+
+def test_typed_activity_round_trip(provider):
+    """Activity receives/returns JSON objects via typed API."""
+
+    def setup(rt):
+        @rt.register_activity("ProcessData")
+        def process_data(ctx, input):
+            return {"processed": True, "name": input["name"], "count": input["count"] * 2}
+
+        @rt.register_orchestration("TypedActivityRoundTrip")
+        def typed_orch(ctx, input):
+            result = yield ctx.schedule_activity_typed(
+                "ProcessData", {"name": "test", "count": 5}
+            )
+            return result
+
+    result = run_orchestration(provider, "TypedActivityRoundTrip", None, setup)
+    assert result.status == "Completed"
+    assert result.output == {"processed": True, "name": "test", "count": 10}
+
+
+def test_typed_all_returns_parsed(provider):
+    """all_typed auto-unwraps ok values from join results."""
+
+    def setup(rt):
+        @rt.register_activity("MakeItem")
+        def make_item(ctx, input):
+            return {"id": input, "status": "created"}
+
+        @rt.register_orchestration("TypedAllTest")
+        def typed_all_orch(ctx, input):
+            tasks = [ctx.schedule_activity_typed("MakeItem", i) for i in range(3)]
+            results = yield ctx.all_typed(tasks)
+            return results
+
+    result = run_orchestration(provider, "TypedAllTest", None, setup)
+    assert result.status == "Completed"
+    output = result.output
+    assert len(output) == 3
+    ids = sorted([item["id"] for item in output])
+    assert ids == [0, 1, 2]
+    for item in output:
+        assert item["status"] == "created"
+
+
+def test_typed_race_returns_parsed(provider):
+    """race_typed, verify winner value is parsed."""
+
+    def setup(rt):
+        @rt.register_activity("FastWork")
+        def fast_work(ctx, input):
+            return {"winner": True, "data": input}
+
+        @rt.register_orchestration("TypedRaceTest")
+        def typed_race_orch(ctx, input):
+            winner = yield ctx.race_typed(
+                ctx.schedule_activity_typed("FastWork", "speedy"),
+                ctx.schedule_timer(60000),
+            )
+            return winner
+
+    result = run_orchestration(provider, "TypedRaceTest", None, setup)
+    assert result.status == "Completed"
+    output = result.output
+    assert output["index"] == 0
+    assert output["value"] == {"winner": True, "data": "speedy"}
+
+
+def test_typed_sub_orchestration_round_trip(provider):
+    """Typed sub-orchestration call with auto JSON serialization."""
+
+    def setup(rt):
+        @rt.register_activity("SubWork")
+        def sub_work(ctx, input):
+            return {"result": f"processed-{input['key']}"}
+
+        @rt.register_orchestration("TypedSubChild")
+        def typed_sub_child(ctx, input):
+            result = yield ctx.schedule_activity_typed("SubWork", input)
+            return result
+
+        @rt.register_orchestration("TypedSubParent")
+        def typed_sub_parent(ctx, input):
+            result = yield ctx.schedule_sub_orchestration_typed(
+                "TypedSubChild", {"key": "alpha"}
+            )
+            return result
+
+    result = run_orchestration(provider, "TypedSubParent", None, setup)
+    assert result.status == "Completed"
+    assert result.output == {"result": "processed-alpha"}
+
+
+# ─── All Composition Edge Cases ──────────────────────────────────
+
+
+def test_all_with_dynamic_fan_out(provider):
+    """all() with a dynamically-built task list from input."""
+
+    def setup(rt):
+        @rt.register_activity("Square")
+        def square(ctx, input):
+            return input * input
+
+        @rt.register_orchestration("AllDynamic")
+        def all_dynamic(ctx, input):
+            tasks = [ctx.schedule_activity("Square", n) for n in input]
+            results = yield ctx.all(tasks)
+            return [r.get("ok") for r in results]
+
+    result = run_orchestration(provider, "AllDynamic", [2, 3, 5], setup)
+    assert result.status == "Completed"
+    assert result.output == [4, 9, 25]
+
+
+# ─── initTracing ──────────────────────────────────────────────────────
+
+import tempfile
+
+
+def test_init_tracing_is_callable():
+    """init_tracing is importable and callable."""
+    from duroxide import init_tracing
+
+    assert callable(init_tracing)
+
+
+def test_init_tracing_writes_to_file():
+    """init_tracing creates a log file (may fail if subscriber already installed)."""
+    from duroxide import init_tracing
+
+    with tempfile.NamedTemporaryFile(suffix=".log", delete=False) as f:
+        log_file = f.name
+
+    try:
+        init_tracing(log_file, log_level="info")
+    except RuntimeError as e:
+        assert "Failed to init tracing" in str(e)
+    finally:
+        try:
+            os.unlink(log_file)
+        except OSError:
+            pass
+
+
+def test_init_tracing_invalid_path():
+    """init_tracing raises a clear error for invalid log file paths."""
+    from duroxide import init_tracing
+
+    with pytest.raises(RuntimeError, match="Failed to open log file"):
+        init_tracing("/nonexistent-dir/sub/test.log")

@@ -293,3 +293,126 @@ def test_sqlite_session_smoketest():
         assert result.output["session"] == "sqlite-sess"
     finally:
         runtime.shutdown(100)
+
+
+# ─── 10. Session Fan-Out Mixed with Regular ──────────────────────
+
+
+def test_session_fan_out_mixed_with_regular(provider):
+    """All() with 2 session + 2 regular activities in same join."""
+    def setup(rt):
+        @rt.register_activity("SessionWork")
+        def session_work(ctx, input):
+            return f"sess:{input}"
+
+        @rt.register_activity("RegularWork")
+        def regular_work(ctx, input):
+            return f"reg:{input}"
+
+        @rt.register_orchestration("MixedFanOutOrch")
+        def mixed_fan_out(ctx, input):
+            results = yield ctx.all([
+                ctx.schedule_activity_on_session("SessionWork", "a", "s1"),
+                ctx.schedule_activity("RegularWork", "b"),
+                ctx.schedule_activity_on_session("SessionWork", "c", "s2"),
+                ctx.schedule_activity("RegularWork", "d"),
+            ])
+            return [r.get("ok", r.get("err")) for r in results]
+
+    result = run_orchestration(provider, "MixedFanOutOrch", None, setup)
+    assert result.status == "Completed"
+    assert result.output == ["sess:a", "reg:b", "sess:c", "reg:d"]
+
+
+# ─── 11. Fan-Out Multiple Per Session Mixed ──────────────────────
+
+
+def test_fan_out_multiple_per_session_mixed(provider):
+    """All() with 2 on session-1, 2 on session-2, 2 non-session."""
+    def setup(rt):
+        @rt.register_activity("Tag")
+        def tag(ctx, input):
+            return f"tag:{input}"
+
+        @rt.register_orchestration("MultiPerSessionOrch")
+        def multi_per_session(ctx, input):
+            results = yield ctx.all([
+                ctx.schedule_activity_on_session("Tag", "a", "session-1"),
+                ctx.schedule_activity_on_session("Tag", "b", "session-1"),
+                ctx.schedule_activity_on_session("Tag", "c", "session-2"),
+                ctx.schedule_activity_on_session("Tag", "d", "session-2"),
+                ctx.schedule_activity("Tag", "e"),
+                ctx.schedule_activity("Tag", "f"),
+            ])
+            return [r.get("ok", r.get("err")) for r in results]
+
+    options = PyRuntimeOptions(
+        dispatcher_poll_interval_ms=50,
+        worker_node_id="test-multi-sess",
+    )
+    result = run_orchestration(provider, "MultiPerSessionOrch", None, setup, options=options)
+    assert result.status == "Completed"
+    assert result.output == ["tag:a", "tag:b", "tag:c", "tag:d", "tag:e", "tag:f"]
+
+
+# ─── 12. Session Survives Continue-as-New ────────────────────────
+
+
+def test_session_survives_continue_as_new(provider):
+    """Session activity, CAN to iter 1, session activity again, complete."""
+    def setup(rt):
+        @rt.register_activity("Track")
+        def track(ctx, input):
+            return f"tracked:{input}"
+
+        @rt.register_orchestration("SessionCANOrch")
+        def session_can(ctx, input):
+            iteration = int(input) if isinstance(input, str) else (input or 0)
+            result = yield ctx.schedule_activity_on_session(
+                "Track", f"iter-{iteration}", "can-session"
+            )
+            if iteration == 0:
+                yield ctx.continue_as_new("1")
+                return None
+            else:
+                return result
+
+    result = run_orchestration(provider, "SessionCANOrch", "0", setup, timeout_ms=15_000)
+    assert result.status == "Completed"
+    assert result.output == "tracked:iter-1"
+
+
+# ─── 13. Session CAN Versioned Upgrade ──────────────────────────
+
+
+def test_session_can_versioned_upgrade(provider):
+    """v1 does session work → CAN versioned to v2 → v2 does session work → complete."""
+    client = Client(provider)
+    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+
+    @runtime.register_activity("Work")
+    def work(ctx, input):
+        return f"done:{input}"
+
+    @runtime.register_orchestration_versioned("SessionVerOrch", "1.0.0")
+    def session_ver_v1(ctx, input):
+        result = yield ctx.schedule_activity_on_session("Work", "from-v1", "ver-session")
+        yield ctx.continue_as_new_versioned(result, "2.0.0")
+        return None
+
+    @runtime.register_orchestration_versioned("SessionVerOrch", "2.0.0")
+    def session_ver_v2(ctx, input):
+        result = yield ctx.schedule_activity_on_session("Work", "from-v2", "ver-session")
+        return f"{input}+{result}"
+
+    runtime.start()
+    try:
+        instance_id = uid("SessionVerOrch")
+        client.start_orchestration_versioned(
+            instance_id, "SessionVerOrch", None, "1.0.0"
+        )
+        result = client.wait_for_orchestration(instance_id, 15_000)
+        assert result.status == "Completed"
+        assert result.output == "done:from-v1+done:from-v2"
+    finally:
+        runtime.shutdown(100)
