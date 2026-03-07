@@ -208,6 +208,35 @@ def test_with_tag_returns_scheduled_task():
     assert tagged["tag"] == "gpu"
 
 
+def test_untagged_activity_returns_none_tag():
+    """Schedule an untagged activity (no .with_tag()), verify ctx.tag() is None."""
+    provider = SqliteProvider.in_memory()
+    client = Client(provider)
+    runtime = Runtime(
+        provider,
+        PyRuntimeOptions(dispatcher_poll_interval_ms=50),
+    )
+
+    @runtime.register_activity("Plain")
+    def plain(ctx, input):
+        return {"tag": ctx.tag()}
+
+    @runtime.register_orchestration("NoTagOrch")
+    def no_tag_orch(ctx, input):
+        result = yield ctx.schedule_activity("Plain", input)
+        return result
+
+    runtime.start()
+    try:
+        instance_id = uid("untagged-none")
+        client.start_orchestration(instance_id, "NoTagOrch", "x")
+        result = client.wait_for_orchestration(instance_id, 10_000)
+        assert result.status == "Completed"
+        assert result.output["tag"] is None
+    finally:
+        runtime.shutdown(100)
+
+
 # ─── PostgreSQL Tests ──────────────────────────────────────────────
 
 
