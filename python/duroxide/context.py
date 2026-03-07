@@ -18,7 +18,24 @@ from duroxide._duroxide import (
     orchestration_get_custom_status,
     activity_trace_log,
     activity_is_cancelled,
+    activity_tag,
 )
+
+
+class ScheduledTask(dict):
+    """A task descriptor that can be yielded from orchestration generators.
+
+    Extends dict so it's compatible with JSON serialization and the Rust handler,
+    while adding chainable builder methods like `.with_tag()`.
+    """
+
+    def with_tag(self, tag: str) -> "ScheduledTask":
+        """Set a routing tag for activity worker specialization.
+
+        Tagged activities are only processed by workers whose tag filter matches.
+        """
+        self["tag"] = tag
+        return self
 
 
 class OrchestrationContext:
@@ -36,42 +53,45 @@ class OrchestrationContext:
 
     # ─── Scheduling (yield these) ──────────────────────────
 
-    def schedule_activity(self, name: str, input=None, session_id: str = None) -> dict:
+    def schedule_activity(self, name: str, input=None, session_id: str = None) -> ScheduledTask:
         """Schedule an activity. Yield the return value.
 
         If session_id is provided, the activity will be routed to the worker
         owning that session (session affinity).
+
+        Chain `.with_tag("gpu")` to route to a specialized worker.
         """
         if session_id is not None:
-            return {
+            return ScheduledTask({
                 "type": "activityWithSession",
                 "name": name,
                 "input": json.dumps(input),
                 "sessionId": session_id,
-            }
-        return {
+            })
+        return ScheduledTask({
             "type": "activity",
             "name": name,
             "input": json.dumps(input),
-        }
+        })
 
     def schedule_activity_on_session(
         self, name: str, input, session_id: str
-    ) -> dict:
+    ) -> ScheduledTask:
         """Schedule an activity with session affinity. Yield the return value.
 
         Activities with the same session_id are routed to the same worker.
+        Chain `.with_tag("gpu")` to route to a specialized worker.
         """
-        return {
+        return ScheduledTask({
             "type": "activityWithSession",
             "name": name,
             "input": json.dumps(input),
             "sessionId": session_id,
-        }
+        })
 
-    def schedule_activity_with_retry(self, name: str, input, retry: dict) -> dict:
+    def schedule_activity_with_retry(self, name: str, input, retry: dict) -> ScheduledTask:
         """Schedule an activity with retry policy. Yield the return value."""
-        return {
+        return ScheduledTask({
             "type": "activityWithRetry",
             "name": name,
             "input": json.dumps(input),
@@ -83,17 +103,17 @@ class OrchestrationContext:
                 ),
                 "backoff": retry.get("backoff"),
             },
-        }
+        })
 
     def schedule_activity_with_retry_on_session(
         self, name: str, input, retry: dict, session_id: str
-    ) -> dict:
+    ) -> ScheduledTask:
         """Schedule an activity with retry policy and session affinity. Yield the return value.
 
         All retry attempts are pinned to the same session_id, ensuring they
         execute on the same worker.
         """
-        return {
+        return ScheduledTask({
             "type": "activityWithRetryOnSession",
             "name": name,
             "input": json.dumps(input),
@@ -106,7 +126,7 @@ class OrchestrationContext:
                 "backoff": retry.get("backoff"),
             },
             "sessionId": session_id,
-        }
+        })
 
     def schedule_timer(self, delay_ms: int) -> dict:
         """Schedule a timer (delay in milliseconds). Yield the return value."""
@@ -218,19 +238,20 @@ class OrchestrationContext:
 
     def schedule_activity_typed(
         self, name: str, input: Any = None, result_type: type = None
-    ) -> dict:
+    ) -> ScheduledTask:
         """Schedule activity with auto JSON serialization/deserialization.
 
         Input is auto-serialized via json.dumps if not already a string.
         Result is auto-deserialized via json.loads.
+        Chain `.with_tag("gpu")` to route to a specialized worker.
         """
         raw_input = input if isinstance(input, str) else json.dumps(input)
-        return {
+        return ScheduledTask({
             "type": "activity",
             "name": name,
             "input": raw_input,
             "_typed": True,
-        }
+        })
 
     def schedule_sub_orchestration_typed(
         self, name: str, input: Any = None, result_type: type = None
@@ -250,24 +271,24 @@ class OrchestrationContext:
 
     def schedule_activity_on_session_typed(
         self, name: str, input: Any = None, session_id: str = None
-    ) -> dict:
+    ) -> ScheduledTask:
         """Schedule activity with session affinity and auto JSON serialization/deserialization.
 
         Input is auto-serialized via json.dumps if not already a string.
         Result is auto-deserialized via json.loads.
         """
         raw_input = input if isinstance(input, str) else json.dumps(input)
-        return {
+        return ScheduledTask({
             "type": "activityWithSession",
             "name": name,
             "input": raw_input,
             "sessionId": session_id,
             "_typed": True,
-        }
+        })
 
     def schedule_activity_with_retry_typed(
         self, name: str, input: Any = None, retry: dict = None
-    ) -> dict:
+    ) -> ScheduledTask:
         """Schedule activity with retry policy and auto JSON serialization/deserialization.
 
         Input is auto-serialized via json.dumps if not already a string.
@@ -275,7 +296,7 @@ class OrchestrationContext:
         """
         raw_input = input if isinstance(input, str) else json.dumps(input)
         retry = retry or {}
-        return {
+        return ScheduledTask({
             "type": "activityWithRetry",
             "name": name,
             "input": raw_input,
@@ -288,11 +309,11 @@ class OrchestrationContext:
                 "backoff": retry.get("backoff"),
             },
             "_typed": True,
-        }
+        })
 
     def schedule_activity_with_retry_on_session_typed(
         self, name: str, input: Any = None, retry: dict = None, session_id: str = None
-    ) -> dict:
+    ) -> ScheduledTask:
         """Schedule activity with retry policy, session affinity, and auto JSON serde.
 
         Input is auto-serialized via json.dumps if not already a string.
@@ -300,7 +321,7 @@ class OrchestrationContext:
         """
         raw_input = input if isinstance(input, str) else json.dumps(input)
         retry = retry or {}
-        return {
+        return ScheduledTask({
             "type": "activityWithRetryOnSession",
             "name": name,
             "input": raw_input,
@@ -314,7 +335,7 @@ class OrchestrationContext:
             },
             "sessionId": session_id,
             "_typed": True,
-        }
+        })
 
     def wait_for_event_typed(self, name: str) -> dict:
         """Wait for an external event with auto JSON deserialization.
@@ -460,7 +481,15 @@ class ActivityContext:
         self.activity_name: str = ctx_info["activityName"]
         self.worker_id: str = ctx_info["workerId"]
         self.session_id: str = ctx_info.get("sessionId")
+        self._tag: Optional[str] = ctx_info.get("tag")
         self._trace_token: str = ctx_info["_traceToken"]
+
+    def tag(self) -> Optional[str]:
+        """Returns the routing tag if this activity was scheduled via .with_tag().
+
+        Returns None for activities scheduled without a tag.
+        """
+        return self._tag
 
     def trace_info(self, message: str):
         activity_trace_log(self._trace_token, "info", str(message))

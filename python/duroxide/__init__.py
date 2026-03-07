@@ -28,9 +28,10 @@ from duroxide._duroxide import (
     orchestration_reset_custom_status,
     orchestration_get_custom_status,
     activity_is_cancelled,
+    activity_tag,
     init_tracing,
 )
-from duroxide.context import OrchestrationContext, ActivityContext
+from duroxide.context import OrchestrationContext, ActivityContext, ScheduledTask
 from duroxide.driver import create_generator, next_step, dispose_generator
 
 import json
@@ -420,6 +421,32 @@ class Runtime:
         return self._native.metrics_snapshot()
 
 
+class TagFilter:
+    """Helper for constructing worker tag filter values.
+
+    Usage with PyRuntimeOptions:
+        PyRuntimeOptions(worker_tag_filter=TagFilter.DEFAULT_ONLY)
+        PyRuntimeOptions(worker_tag_filter=TagFilter.tags(["gpu", "cpu"]))
+        PyRuntimeOptions(worker_tag_filter=TagFilter.default_and(["gpu"]))
+        PyRuntimeOptions(worker_tag_filter=TagFilter.ANY)
+        PyRuntimeOptions(worker_tag_filter=TagFilter.NONE)
+    """
+
+    DEFAULT_ONLY = "default_only"
+    ANY = "any"
+    NONE = "none"
+
+    @staticmethod
+    def tags(tags: list) -> str:
+        """Process only activities with the specified tags (not untagged)."""
+        return json.dumps({"tags": list(tags)})
+
+    @staticmethod
+    def default_and(tags: list) -> str:
+        """Process untagged activities AND activities with the specified tags."""
+        return json.dumps({"default_and": list(tags)})
+
+
 __all__ = [
     "SqliteProvider",
     "PostgresProvider",
@@ -429,6 +456,8 @@ __all__ = [
     "PyRuntimeOptions",
     "OrchestrationContext",
     "ActivityContext",
+    "ScheduledTask",
+    "TagFilter",
     "PyOrchestrationStatus",
     "PySystemMetrics",
     "PyQueueDepths",

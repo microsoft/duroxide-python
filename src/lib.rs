@@ -30,6 +30,13 @@ fn activity_is_cancelled(token: String) -> bool {
     handlers::activity_is_cancelled(&token)
 }
 
+/// Get the routing tag for an activity (set via .with_tag() at schedule time).
+/// Returns None if no tag was set.
+#[pyfunction]
+fn activity_tag(token: String) -> Option<String> {
+    handlers::activity_tag(&token)
+}
+
 /// Set custom status on an orchestration (fire-and-forget, no yield needed).
 #[pyfunction]
 fn orchestration_set_custom_status(instance_id: String, status: String) {
@@ -116,6 +123,7 @@ fn _duroxide(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(activity_trace_log, m)?)?;
     m.add_function(wrap_pyfunction!(orchestration_trace_log, m)?)?;
     m.add_function(wrap_pyfunction!(activity_is_cancelled, m)?)?;
+    m.add_function(wrap_pyfunction!(activity_tag, m)?)?;
     m.add_function(wrap_pyfunction!(orchestration_set_custom_status, m)?)?;
     m.add_function(wrap_pyfunction!(orchestration_reset_custom_status, m)?)?;
     m.add_function(wrap_pyfunction!(orchestration_get_custom_status, m)?)?;

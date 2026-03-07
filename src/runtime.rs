@@ -2,6 +2,7 @@ use pyo3::prelude::*;
 use std::sync::Arc;
 use std::time::Duration;
 
+use duroxide::providers::TagFilter;
 use duroxide::runtime::{self, OrchestrationHandler, OrchestrationRegistry};
 
 use crate::handlers::{PyActivityHandler, PyOrchestrationHandler};
@@ -41,6 +42,9 @@ pub struct PyRuntimeOptions {
     pub session_idle_timeout_ms: Option<i64>,
     /// Stable worker identity for session ownership (e.g., K8s pod name)
     pub worker_node_id: Option<String>,
+    /// Worker tag filter for activity routing.
+    /// Accepts: "default_only", "any", "none", or JSON like '{"tags":["gpu"]}' / '{"default_and":["gpu"]}'
+    pub worker_tag_filter: Option<String>,
 }
 
 #[pymethods]
@@ -59,6 +63,7 @@ impl PyRuntimeOptions {
         max_sessions_per_runtime=None,
         session_idle_timeout_ms=None,
         worker_node_id=None,
+        worker_tag_filter=None,
     ))]
     fn new(
         orchestration_concurrency: Option<i32>,
@@ -72,6 +77,7 @@ impl PyRuntimeOptions {
         max_sessions_per_runtime: Option<i32>,
         session_idle_timeout_ms: Option<i64>,
         worker_node_id: Option<String>,
+        worker_tag_filter: Option<String>,
     ) -> Self {
         Self {
             orchestration_concurrency,
@@ -85,6 +91,7 @@ impl PyRuntimeOptions {
             max_sessions_per_runtime,
             session_idle_timeout_ms,
             worker_node_id,
+            worker_tag_filter,
         }
     }
 }
@@ -253,6 +260,9 @@ impl PyRuntime {
             if let Some(ref nid) = opts.worker_node_id {
                 rt_options.worker_node_id = Some(nid.clone());
             }
+            if let Some(ref filter_str) = opts.worker_tag_filter {
+                rt_options.worker_tag_filter = parse_tag_filter(filter_str);
+            }
         }
 
         // Release GIL before blocking — orchestration handlers need GIL access
@@ -308,5 +318,42 @@ impl PyRuntime {
             });
         }
         Ok(())
+    }
+}
+
+/// Parse a tag filter string into a TagFilter.
+///
+/// Accepts:
+/// - `"default_only"` → TagFilter::DefaultOnly
+/// - `"any"` → TagFilter::Any
+/// - `"none"` → TagFilter::None
+/// - JSON `{"tags": ["gpu", "cpu"]}` → TagFilter::Tags
+/// - JSON `{"default_and": ["gpu"]}` → TagFilter::DefaultAnd
+fn parse_tag_filter(s: &str) -> TagFilter {
+    match s {
+        "default_only" => TagFilter::default_only(),
+        "any" => TagFilter::any(),
+        "none" => TagFilter::none(),
+        other => {
+            if let Ok(val) = serde_json::from_str::<serde_json::Value>(other) {
+                if let Some(tags) = val.get("tags").and_then(|v| v.as_array()) {
+                    let tag_list: Vec<String> = tags
+                        .iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect();
+                    TagFilter::tags(tag_list)
+                } else if let Some(tags) = val.get("default_and").and_then(|v| v.as_array()) {
+                    let tag_list: Vec<String> = tags
+                        .iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect();
+                    TagFilter::default_and(tag_list)
+                } else {
+                    TagFilter::default_only()
+                }
+            } else {
+                TagFilter::default_only()
+            }
+        }
     }
 }

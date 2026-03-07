@@ -31,6 +31,12 @@ impl Drop for ActivityCtxGuard {
     }
 }
 
+/// Called from Python to get the routing tag from the stored ActivityContext.
+pub fn activity_tag(token: &str) -> Option<String> {
+    let map = ACTIVITY_CTXS.lock();
+    map.get(token).and_then(|ctx| ctx.tag().map(String::from))
+}
+
 /// Called from Python to check if an activity has been cancelled.
 pub fn activity_is_cancelled(token: &str) -> bool {
     let map = ACTIVITY_CTXS.lock();
@@ -165,6 +171,7 @@ impl PyActivityHandler {
             "activityName": ctx.activity_name(),
             "workerId": ctx.worker_id(),
             "sessionId": ctx.session_id(),
+            "tag": ctx.tag(),
             "_traceToken": token,
         });
 
@@ -262,8 +269,9 @@ impl PyOrchestrationHandler {
     /// Execute a ScheduledTask using the real OrchestrationContext.
     async fn execute_task(&self, ctx: &OrchestrationContext, task: ScheduledTask) -> TaskResult {
         match task {
-            ScheduledTask::Activity { name, input } => {
-                match ctx.schedule_activity(&name, input).await {
+            ScheduledTask::Activity { name, input, tag } => {
+                let future = ctx.schedule_activity(&name, input);
+                match if let Some(t) = tag { future.with_tag(t).await } else { future.await } {
                     Ok(val) => TaskResult::Ok(val),
                     Err(err) => TaskResult::Err(err),
                 }
@@ -272,11 +280,10 @@ impl PyOrchestrationHandler {
                 name,
                 input,
                 session_id,
+                tag,
             } => {
-                match ctx
-                    .schedule_activity_on_session(&name, input, session_id)
-                    .await
-                {
+                let future = ctx.schedule_activity_on_session(&name, input, session_id);
+                match if let Some(t) = tag { future.with_tag(t).await } else { future.await } {
                     Ok(val) => TaskResult::Ok(val),
                     Err(err) => TaskResult::Err(err),
                 }
@@ -285,14 +292,21 @@ impl PyOrchestrationHandler {
                 name,
                 input,
                 retry,
+                tag,
             } => {
-                let policy = convert_retry_policy(&retry);
-                match ctx
-                    .schedule_activity_with_retry(&name, input, policy)
-                    .await
-                {
-                    Ok(val) => TaskResult::Ok(val),
-                    Err(err) => TaskResult::Err(err),
+                if let Some(t) = tag {
+                    // Retry with tag: manually retry using schedule_activity + with_tag
+                    let policy = convert_retry_policy(&retry);
+                    match retry_with_tag(ctx, &name, &input, &t, &policy).await {
+                        Ok(val) => TaskResult::Ok(val),
+                        Err(err) => TaskResult::Err(err),
+                    }
+                } else {
+                    let policy = convert_retry_policy(&retry);
+                    match ctx.schedule_activity_with_retry(&name, input, policy).await {
+                        Ok(val) => TaskResult::Ok(val),
+                        Err(err) => TaskResult::Err(err),
+                    }
                 }
             }
             ScheduledTask::Timer { delay_ms } => {
@@ -398,14 +412,23 @@ impl PyOrchestrationHandler {
                 input,
                 retry,
                 session_id,
+                tag,
             } => {
-                let policy = convert_retry_policy(&retry);
-                match ctx
-                    .schedule_activity_with_retry_on_session(&name, input, policy, &session_id)
-                    .await
-                {
-                    Ok(val) => TaskResult::Ok(val),
-                    Err(err) => TaskResult::Err(err),
+                if let Some(t) = tag {
+                    let policy = convert_retry_policy(&retry);
+                    match retry_on_session_with_tag(ctx, &name, &input, &session_id, &t, &policy).await {
+                        Ok(val) => TaskResult::Ok(val),
+                        Err(err) => TaskResult::Err(err),
+                    }
+                } else {
+                    let policy = convert_retry_policy(&retry);
+                    match ctx
+                        .schedule_activity_with_retry_on_session(&name, input, policy, &session_id)
+                        .await
+                    {
+                        Ok(val) => TaskResult::Ok(val),
+                        Err(err) => TaskResult::Err(err),
+                    }
                 }
             }
             ScheduledTask::Join { tasks } => {
@@ -494,8 +517,9 @@ fn make_select_future(
     task: ScheduledTask,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = String> + Send + '_>> {
     match task {
-        ScheduledTask::Activity { name, input } => Box::pin(async move {
-            match ctx.schedule_activity(&name, input).await {
+        ScheduledTask::Activity { name, input, tag } => Box::pin(async move {
+            let future = ctx.schedule_activity(&name, input);
+            match if let Some(t) = tag { future.with_tag(t).await } else { future.await } {
                 Ok(v) => v,
                 Err(e) => e,
             }
@@ -504,11 +528,10 @@ fn make_select_future(
             name,
             input,
             session_id,
+            tag,
         } => Box::pin(async move {
-            match ctx
-                .schedule_activity_on_session(&name, input, session_id)
-                .await
-            {
+            let future = ctx.schedule_activity_on_session(&name, input, session_id);
+            match if let Some(t) = tag { future.with_tag(t).await } else { future.await } {
                 Ok(v) => v,
                 Err(e) => e,
             }
@@ -517,14 +540,20 @@ fn make_select_future(
             name,
             input,
             retry,
+            tag,
         } => Box::pin(async move {
-            let policy = convert_retry_policy(&retry);
-            match ctx
-                .schedule_activity_with_retry(&name, input, policy)
-                .await
-            {
-                Ok(v) => v,
-                Err(e) => e,
+            if let Some(t) = tag {
+                let policy = convert_retry_policy(&retry);
+                match retry_with_tag(ctx, &name, &input, &t, &policy).await {
+                    Ok(v) => v,
+                    Err(e) => e,
+                }
+            } else {
+                let policy = convert_retry_policy(&retry);
+                match ctx.schedule_activity_with_retry(&name, input, policy).await {
+                    Ok(v) => v,
+                    Err(e) => e,
+                }
             }
         }),
         ScheduledTask::Timer { delay_ms } => Box::pin(async move {
@@ -588,14 +617,23 @@ fn make_select_future(
             input,
             retry,
             session_id,
+            tag,
         } => Box::pin(async move {
-            let policy = convert_retry_policy(&retry);
-            match ctx
-                .schedule_activity_with_retry_on_session(&name, input, policy, &session_id)
-                .await
-            {
-                Ok(v) => v,
-                Err(e) => e,
+            if let Some(t) = tag {
+                let policy = convert_retry_policy(&retry);
+                match retry_on_session_with_tag(ctx, &name, &input, &session_id, &t, &policy).await {
+                    Ok(v) => v,
+                    Err(e) => e,
+                }
+            } else {
+                let policy = convert_retry_policy(&retry);
+                match ctx
+                    .schedule_activity_with_retry_on_session(&name, input, policy, &session_id)
+                    .await
+                {
+                    Ok(v) => v,
+                    Err(e) => e,
+                }
             }
         }),
         _ => Box::pin(async { "unsupported task in select".to_string() }),
@@ -622,8 +660,9 @@ fn make_join_future(
     task: ScheduledTask,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = String> + Send + '_>> {
     match task {
-        ScheduledTask::Activity { name, input } => Box::pin(async move {
-            match ctx.schedule_activity(&name, input).await {
+        ScheduledTask::Activity { name, input, tag } => Box::pin(async move {
+            let future = ctx.schedule_activity(&name, input);
+            match if let Some(t) = tag { future.with_tag(t).await } else { future.await } {
                 Ok(v) => wrap_ok(v),
                 Err(e) => wrap_err(e),
             }
@@ -632,11 +671,10 @@ fn make_join_future(
             name,
             input,
             session_id,
+            tag,
         } => Box::pin(async move {
-            match ctx
-                .schedule_activity_on_session(&name, input, session_id)
-                .await
-            {
+            let future = ctx.schedule_activity_on_session(&name, input, session_id);
+            match if let Some(t) = tag { future.with_tag(t).await } else { future.await } {
                 Ok(v) => wrap_ok(v),
                 Err(e) => wrap_err(e),
             }
@@ -645,14 +683,20 @@ fn make_join_future(
             name,
             input,
             retry,
+            tag,
         } => Box::pin(async move {
-            let policy = convert_retry_policy(&retry);
-            match ctx
-                .schedule_activity_with_retry(&name, input, policy)
-                .await
-            {
-                Ok(v) => wrap_ok(v),
-                Err(e) => wrap_err(e),
+            if let Some(t) = tag {
+                let policy = convert_retry_policy(&retry);
+                match retry_with_tag(ctx, &name, &input, &t, &policy).await {
+                    Ok(v) => wrap_ok(v),
+                    Err(e) => wrap_err(e),
+                }
+            } else {
+                let policy = convert_retry_policy(&retry);
+                match ctx.schedule_activity_with_retry(&name, input, policy).await {
+                    Ok(v) => wrap_ok(v),
+                    Err(e) => wrap_err(e),
+                }
             }
         }),
         ScheduledTask::Timer { delay_ms } => Box::pin(async move {
@@ -718,14 +762,23 @@ fn make_join_future(
             input,
             retry,
             session_id,
+            tag,
         } => Box::pin(async move {
-            let policy = convert_retry_policy(&retry);
-            match ctx
-                .schedule_activity_with_retry_on_session(&name, input, policy, &session_id)
-                .await
-            {
-                Ok(v) => wrap_ok(v),
-                Err(e) => wrap_err(e),
+            if let Some(t) = tag {
+                let policy = convert_retry_policy(&retry);
+                match retry_on_session_with_tag(ctx, &name, &input, &session_id, &t, &policy).await {
+                    Ok(v) => wrap_ok(v),
+                    Err(e) => wrap_err(e),
+                }
+            } else {
+                let policy = convert_retry_policy(&retry);
+                match ctx
+                    .schedule_activity_with_retry_on_session(&name, input, policy, &session_id)
+                    .await
+                {
+                    Ok(v) => wrap_ok(v),
+                    Err(e) => wrap_err(e),
+                }
             }
         }),
         _ => Box::pin(async {
@@ -797,6 +850,93 @@ impl duroxide::runtime::OrchestrationHandler for PyOrchestrationHandler {
             }
         }
     }
+}
+
+/// Retry an activity with a tag, mirroring the duroxide core retry logic.
+/// Core's `schedule_activity_with_retry` is `async fn` and can't chain `.with_tag()`,
+/// so we implement the retry loop here using `schedule_activity().with_tag()`.
+async fn retry_with_tag(
+    ctx: &OrchestrationContext,
+    name: &str,
+    input: &str,
+    tag: &str,
+    policy: &duroxide::RetryPolicy,
+) -> Result<String, String> {
+    let mut last_error = String::new();
+    for attempt in 1..=policy.max_attempts {
+        let activity_result = if let Some(timeout) = policy.timeout {
+            let deadline = async {
+                ctx.schedule_timer(timeout).await;
+                Err::<String, String>("timeout: activity timed out".to_string())
+            };
+            let activity = ctx.schedule_activity(name, input).with_tag(tag);
+            match ctx.select2(activity, deadline).await {
+                duroxide::Either2::First(result) => result,
+                duroxide::Either2::Second(Err(e)) => return Err(e),
+                duroxide::Either2::Second(Ok(_)) => unreachable!(),
+            }
+        } else {
+            ctx.schedule_activity(name, input).with_tag(tag).await
+        };
+        match activity_result {
+            Ok(result) => return Ok(result),
+            Err(e) => {
+                last_error = e;
+                if attempt < policy.max_attempts {
+                    let delay = policy.delay_for_attempt(attempt);
+                    if !delay.is_zero() {
+                        ctx.schedule_timer(delay).await;
+                    }
+                }
+            }
+        }
+    }
+    Err(last_error)
+}
+
+/// Retry an activity with session affinity and a tag.
+async fn retry_on_session_with_tag(
+    ctx: &OrchestrationContext,
+    name: &str,
+    input: &str,
+    session_id: &str,
+    tag: &str,
+    policy: &duroxide::RetryPolicy,
+) -> Result<String, String> {
+    let mut last_error = String::new();
+    for attempt in 1..=policy.max_attempts {
+        let activity_result = if let Some(timeout) = policy.timeout {
+            let deadline = async {
+                ctx.schedule_timer(timeout).await;
+                Err::<String, String>("timeout: activity timed out".to_string())
+            };
+            let activity = ctx
+                .schedule_activity_on_session(name, input, session_id)
+                .with_tag(tag);
+            match ctx.select2(activity, deadline).await {
+                duroxide::Either2::First(result) => result,
+                duroxide::Either2::Second(Err(e)) => return Err(e),
+                duroxide::Either2::Second(Ok(_)) => unreachable!(),
+            }
+        } else {
+            ctx.schedule_activity_on_session(name, input, session_id)
+                .with_tag(tag)
+                .await
+        };
+        match activity_result {
+            Ok(result) => return Ok(result),
+            Err(e) => {
+                last_error = e;
+                if attempt < policy.max_attempts {
+                    let delay = policy.delay_for_attempt(attempt);
+                    if !delay.is_zero() {
+                        ctx.schedule_timer(delay).await;
+                    }
+                }
+            }
+        }
+    }
+    Err(last_error)
 }
 
 fn convert_retry_policy(config: &RetryPolicyConfig) -> duroxide::RetryPolicy {
