@@ -54,6 +54,28 @@ jobs:
           name: wheels-linux-${{ matrix.target }}
           path: dist/*.whl
 
+  # ── Windows (x86_64) ─────────────────────────────────────────
+  windows:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        target: [x86_64-pc-windows-msvc]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          args: --release --out dist
+          sccache: "true"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-windows-${{ matrix.target }}
+          path: dist/*.whl
+
   # ── Source distribution ─────────────────────────────────────
   sdist:
     runs-on: ubuntu-latest
@@ -74,7 +96,7 @@ jobs:
     name: Publish to PyPI
     runs-on: ubuntu-latest
     if: github.event_name == 'release'
-    needs: [macos, linux, sdist]
+    needs: [macos, linux, windows, sdist]
     environment:
       name: pypi
       url: https://pypi.org/p/duroxide
