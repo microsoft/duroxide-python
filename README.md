@@ -18,6 +18,7 @@ Write durable workflows as Python generators. The Rust runtime handles replay, p
 - **Custom Status** — `ctx.set_custom_status()` / `ctx.reset_custom_status()` for orchestration progress reporting, `client.wait_for_status_change()` for efficient polling
 - **Event Queues** — `ctx.dequeue_event(queue_name)` for FIFO mailbox-style message passing, `client.enqueue_event()` to send messages
 - **Retry on Session** — `ctx.schedule_activity_with_retry_on_session()` for retry with session affinity
+- **Tag Routing** — worker tags for activity affinity (`MAX_WORKER_TAGS=5`, `MAX_TAG_NAME_BYTES=256`)
 - **Admin APIs** — instance management, metrics, pruning
 - **Activity client access** — `ctx.get_client()` lets activities start new orchestrations
 - **Runtime metrics** — `metrics_snapshot()` for orchestration/activity counters
@@ -211,7 +212,7 @@ pip install maturin pytest
 # Build the native extension and install in development mode
 maturin develop
 
-# Run all 54 tests
+# Run all 59 tests
 pytest
 
 # Run tests with verbose output

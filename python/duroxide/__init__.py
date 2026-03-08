@@ -421,6 +421,11 @@ class Runtime:
         return self._native.metrics_snapshot()
 
 
+# Tag limits
+MAX_WORKER_TAGS = 5
+MAX_TAG_NAME_BYTES = 256
+
+
 class TagFilter:
     """Helper for constructing worker tag filter values.
 
@@ -471,4 +476,6 @@ __all__ = [
     "PyEvent",
     "init_tracing",
     "parse_result",
+    "MAX_WORKER_TAGS",
+    "MAX_TAG_NAME_BYTES",
 ]
