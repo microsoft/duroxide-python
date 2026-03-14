@@ -9,7 +9,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 duroxide = { version = "0.1.25", features = ["sqlite"] }
-duroxide-pg = { version = "0.1.25" }
+duroxide-pg = { version = "0.1.26" }
 pyo3 = { version = "0.23", features = ["extension-module"] }
 async-trait = "0.1"
 tokio = { version = "1", features = ["full"] }
@@ -19,8 +19,6 @@ dotenvy = "0.15"
 parking_lot = "0.12"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter", "json"] }
 
-[patch.crates-io]
-duroxide-pg = { path = "../../providers/duroxide-pg" }
 
 [profile.release]
 lto = true
