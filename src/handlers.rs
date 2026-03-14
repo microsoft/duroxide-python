@@ -139,6 +139,36 @@ pub fn orchestration_get_custom_status(instance_id: &str) -> Option<String> {
     map.get(instance_id).and_then(|ctx| ctx.get_custom_status())
 }
 
+/// Called from Python to set a KV value on the OrchestrationContext.
+pub fn orchestration_set_value(instance_id: &str, key: &str, value: &str) {
+    let map = ORCHESTRATION_CTXS.lock();
+    if let Some(ctx) = map.get(instance_id) {
+        ctx.set_value(key, value);
+    }
+}
+
+/// Called from Python to read a KV value from the OrchestrationContext.
+pub fn orchestration_get_value(instance_id: &str, key: &str) -> Option<String> {
+    let map = ORCHESTRATION_CTXS.lock();
+    map.get(instance_id).and_then(|ctx| ctx.get_value(key))
+}
+
+/// Called from Python to clear a single KV value on the OrchestrationContext.
+pub fn orchestration_clear_value(instance_id: &str, key: &str) {
+    let map = ORCHESTRATION_CTXS.lock();
+    if let Some(ctx) = map.get(instance_id) {
+        ctx.clear_value(key);
+    }
+}
+
+/// Called from Python to clear all KV values on the OrchestrationContext.
+pub fn orchestration_clear_all_values(instance_id: &str) {
+    let map = ORCHESTRATION_CTXS.lock();
+    if let Some(ctx) = map.get(instance_id) {
+        ctx.clear_all_values();
+    }
+}
+
 // ─── Activity Bridge ─────────────────────────────────────────────
 
 /// Wraps a Python callable as a Rust ActivityHandler.

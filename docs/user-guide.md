@@ -380,6 +380,38 @@ while True:
 - `result.custom_status` — the custom status string, or `None` if not set
 - `result.custom_status_version` — monotonically increasing version counter
 
+## KV Store — Durable Per-Instance State
+
+KV entries are durable metadata scoped to a single orchestration instance. They can be updated from inside the orchestration without yielding and read externally through the client.
+
+```python
+@runtime.register_orchestration("RequestServer")
+def request_server(ctx, input):
+    ctx.set_value("status", "ready")
+    request = yield ctx.wait_for_event("request")
+    response = request["command"][::-1]
+    ctx.set_value(f"response:{request['op_id']}", response)
+    return "done"
+
+status = client.wait_for_value("server-1", "status", 10000)
+response = client.get_value("server-1", "response:op-1")
+```
+
+**OrchestrationContext methods:**
+- `ctx.set_value(key, value)` — set or overwrite a key
+- `ctx.get_value(key)` — read the current value for a key in the active instance
+- `ctx.clear_value(key)` — remove a single key
+- `ctx.clear_all_values()` — clear all keys for the active instance
+- `ctx.get_value_from_instance(instance_id, key)` — read another instance's KV via the built-in syscall activity
+
+**Client methods:**
+- `client.get_value(instance_id, key)` — read a key immediately
+- `client.wait_for_value(instance_id, key, timeout_ms)` — block until the key exists or timeout
+
+**Limits:**
+- `MAX_KV_KEYS = 10`
+- `MAX_KV_VALUE_BYTES = 16384`
+
 ## Event Queues — Persistent FIFO Message Passing
 
 Event queues provide durable, ordered message passing between external clients and orchestrations. Unlike `wait_for_event()` which waits for a single named event, event queues support FIFO ordering with multiple messages on named queues. Messages survive `continue_as_new`.

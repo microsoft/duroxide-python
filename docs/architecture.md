@@ -352,6 +352,38 @@ client.wait_for_status_change(id, last_version, poll_ms, timeout_ms)
 
 The `custom_status_version` is a monotonically increasing counter incremented on every `set_custom_status()` call. Clients pass their last-seen version to avoid redundant reads.
 
+## KV Store Data Path
+
+KV operations are fire-and-forget orchestration context calls backed by provider state for the current instance.
+
+```
+Python                              Rust (PyO3)                        Provider (DB)
+──────                              ───────────                        ─────────────
+ctx.set_value("status", "ready")
+  │
+  └─► orchestration_set_value(instance_id, "status", "ready")
+        │
+        └─► ORCHESTRATION_CTXS.get(instance_id)
+              │
+              └─► ctx.set_value("status", "ready")
+                    │
+                    └─► provider.upsert KV row for (instance_id, key)
+
+client.get_value(id, "status")
+  │
+  └─► py.allow_threads(|| TOKIO_RT.block_on(client.get_value(id, "status")))
+        │
+        └─► provider.get_value(id, "status")
+
+client.wait_for_value(id, "status", timeout_ms)
+  │
+  └─► py.allow_threads(|| TOKIO_RT.block_on(client.wait_for_value(...)))
+        │
+        └─► repeated provider.get_value(...) polling until key exists or timeout
+```
+
+Cross-orchestration reads use the built-in `__duroxide_syscall:get_kv_value` activity. In Python this is exposed as `ctx.get_value_from_instance(instance_id, key)` and replays like any other scheduled activity.
+
 ## Event Queue Data Flow
 
 Event queues provide persistent FIFO message passing between external clients and orchestrations. Unlike `wait_for_event()` which matches a single named event, event queues support multiple messages on named queues with guaranteed ordering. Messages survive `continue_as_new`.

@@ -183,6 +183,21 @@ class Client:
         )
         return _parse_status(result)
 
+    def get_value(self, instance_id: str, key: str) -> "Optional[str]":
+        """Read a single KV entry for the given instance."""
+        return self._native.get_value(instance_id, key)
+
+    def wait_for_value(self, instance_id: str, key: str, timeout_ms: int = 30000) -> str:
+        """Wait for a KV value to be set on an instance."""
+        try:
+            return self._native.wait_for_value(instance_id, key, timeout_ms)
+        except RuntimeError as exc:
+            if "timed out" in str(exc).lower():
+                raise TimeoutError(
+                    f"Timed out waiting for value '{key}' on instance '{instance_id}'"
+                ) from exc
+            raise
+
     def cancel_instance(self, instance_id: str, reason: str = None):
         self._native.cancel_instance(instance_id, reason)
 
@@ -424,6 +439,8 @@ class Runtime:
 # Tag limits
 MAX_WORKER_TAGS = 5
 MAX_TAG_NAME_BYTES = 256
+MAX_KV_KEYS = 10
+MAX_KV_VALUE_BYTES = 16384
 
 
 class TagFilter:
@@ -478,4 +495,6 @@ __all__ = [
     "parse_result",
     "MAX_WORKER_TAGS",
     "MAX_TAG_NAME_BYTES",
+    "MAX_KV_KEYS",
+    "MAX_KV_VALUE_BYTES",
 ]

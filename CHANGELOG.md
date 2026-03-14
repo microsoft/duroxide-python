@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.14] - 2026-03-13
+
+- **KV store support:** Durable key-value store for per-instance state
+  - `OrchestrationContext`: `set_value()`, `get_value()`, `clear_value()`, `clear_all_values()`
+  - `Client`: `get_value()`, `wait_for_value()`
+  - Constants: `MAX_KV_KEYS`, `MAX_KV_VALUE_BYTES`
+- Added KV e2e tests (`test_kv_store.py`)
+- Bumped duroxide to 0.1.24, duroxide-pg to 0.1.25
+
 ## [0.1.13] - 2026-03-08
 
 ### Added

@@ -56,6 +56,30 @@ fn orchestration_get_custom_status(instance_id: String) -> Option<String> {
     handlers::orchestration_get_custom_status(&instance_id)
 }
 
+/// Set a KV value on an orchestration (fire-and-forget, no yield needed).
+#[pyfunction]
+fn orchestration_set_value(instance_id: String, key: String, value: String) {
+    handlers::orchestration_set_value(&instance_id, &key, &value);
+}
+
+/// Read a KV value from an orchestration context.
+#[pyfunction]
+fn orchestration_get_value(instance_id: String, key: String) -> Option<String> {
+    handlers::orchestration_get_value(&instance_id, &key)
+}
+
+/// Clear a single KV value on an orchestration (fire-and-forget, no yield needed).
+#[pyfunction]
+fn orchestration_clear_value(instance_id: String, key: String) {
+    handlers::orchestration_clear_value(&instance_id, &key);
+}
+
+/// Clear all KV values on an orchestration (fire-and-forget, no yield needed).
+#[pyfunction]
+fn orchestration_clear_all_values(instance_id: String) {
+    handlers::orchestration_clear_all_values(&instance_id);
+}
+
 /// Get a Client from the stored ActivityContext (for use in activities).
 #[pyfunction]
 fn activity_get_client(token: String) -> Option<client::PyClient> {
@@ -127,6 +151,10 @@ fn _duroxide(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(orchestration_set_custom_status, m)?)?;
     m.add_function(wrap_pyfunction!(orchestration_reset_custom_status, m)?)?;
     m.add_function(wrap_pyfunction!(orchestration_get_custom_status, m)?)?;
+    m.add_function(wrap_pyfunction!(orchestration_set_value, m)?)?;
+    m.add_function(wrap_pyfunction!(orchestration_get_value, m)?)?;
+    m.add_function(wrap_pyfunction!(orchestration_clear_value, m)?)?;
+    m.add_function(wrap_pyfunction!(orchestration_clear_all_values, m)?)?;
     m.add_function(wrap_pyfunction!(activity_get_client, m)?)?;
     m.add_function(wrap_pyfunction!(init_tracing, m)?)?;
     m.add_class::<provider::PySqliteProvider>()?;

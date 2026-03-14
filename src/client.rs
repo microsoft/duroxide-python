@@ -271,6 +271,41 @@ impl PyClient {
         .map_err(|e: String| pyo3::exceptions::PyRuntimeError::new_err(e))
     }
 
+    /// Read a single KV entry for an orchestration instance.
+    fn get_value(
+        &self,
+        py: Python<'_>,
+        instance_id: String,
+        key: String,
+    ) -> PyResult<Option<String>> {
+        let client = self.inner.clone();
+        py.allow_threads(|| {
+            TOKIO_RT.block_on(async { client.get_value(&instance_id, &key).await.map_err(|e| format!("{e}")) })
+        })
+        .map_err(|e: String| pyo3::exceptions::PyRuntimeError::new_err(e))
+    }
+
+    /// Wait for a KV entry to become available on an orchestration instance.
+    fn wait_for_value(
+        &self,
+        py: Python<'_>,
+        instance_id: String,
+        key: String,
+        timeout_ms: u64,
+    ) -> PyResult<String> {
+        let client = self.inner.clone();
+        let timeout = Duration::from_millis(timeout_ms);
+        py.allow_threads(|| {
+            TOKIO_RT.block_on(async {
+                client
+                    .wait_for_value(&instance_id, &key, timeout)
+                    .await
+                    .map_err(|e| format!("{e}"))
+            })
+        })
+        .map_err(|e: String| pyo3::exceptions::PyRuntimeError::new_err(e))
+    }
+
     /// Get system metrics (if provider supports management).
     fn get_system_metrics(&self, py: Python<'_>) -> PyResult<PySystemMetrics> {
         let client = self.inner.clone();

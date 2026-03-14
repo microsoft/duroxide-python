@@ -16,6 +16,10 @@ from duroxide._duroxide import (
     orchestration_set_custom_status,
     orchestration_reset_custom_status,
     orchestration_get_custom_status,
+    orchestration_set_value,
+    orchestration_get_value,
+    orchestration_clear_value,
+    orchestration_clear_all_values,
     activity_trace_log,
     activity_is_cancelled,
     activity_tag,
@@ -454,6 +458,30 @@ class OrchestrationContext:
         and continue-as-new boundaries.
         """
         return orchestration_get_custom_status(self.instance_id)
+
+    def set_value(self, key: str, value: str):
+        """Set a key-value pair scoped to this orchestration instance."""
+        orchestration_set_value(self.instance_id, str(key), str(value))
+
+    def get_value(self, key: str) -> Optional[str]:
+        """Get the current value for a key. Returns None if not set."""
+        return orchestration_get_value(self.instance_id, str(key))
+
+    def clear_value(self, key: str):
+        """Remove a single key from the KV store."""
+        orchestration_clear_value(self.instance_id, str(key))
+
+    def clear_all_values(self):
+        """Clear ALL key-value pairs for this orchestration instance."""
+        orchestration_clear_all_values(self.instance_id)
+
+    def get_value_from_instance(self, instance_id: str, key: str) -> ScheduledTask:
+        """Read a KV value from another orchestration instance via the built-in syscall activity."""
+        return ScheduledTask({
+            "type": "activity",
+            "name": "__duroxide_syscall:get_kv_value",
+            "input": json.dumps({"instance_id": instance_id, "key": key}),
+        })
 
     # ─── Logging (fire-and-forget, delegates to Rust ctx.trace()) ───
 
