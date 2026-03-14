@@ -387,29 +387,35 @@ KV entries are durable metadata scoped to a single orchestration instance. They 
 ```python
 @runtime.register_orchestration("RequestServer")
 def request_server(ctx, input):
-    ctx.set_value("status", "ready")
+    ctx.set_kv_value("status", "ready")
     request = yield ctx.wait_for_event("request")
     response = request["command"][::-1]
-    ctx.set_value(f"response:{request['op_id']}", response)
+    ctx.set_kv_value(f"response:{request['op_id']}", response)
     return "done"
 
-status = client.wait_for_value("server-1", "status", 10000)
-response = client.get_value("server-1", "response:op-1")
+status = client.wait_for_kv_value("server-1", "status", 10000)
+response = client.get_kv_value("server-1", "response:op-1")
 ```
 
 **OrchestrationContext methods:**
-- `ctx.set_value(key, value)` — set or overwrite a key
-- `ctx.get_value(key)` — read the current value for a key in the active instance
-- `ctx.clear_value(key)` — remove a single key
-- `ctx.clear_all_values()` — clear all keys for the active instance
-- `ctx.get_value_from_instance(instance_id, key)` — read another instance's KV via the built-in syscall activity
+- `ctx.set_kv_value(key, value)` — set or overwrite a key
+- `ctx.get_kv_value(key)` — read the current value for a key in the active instance
+- `ctx.get_kv_all_values()` — return a snapshot dict of all current KV entries
+- `ctx.get_kv_all_keys()` — return the list of active keys
+- `ctx.get_kv_length()` — return the number of active keys
+- `ctx.clear_kv_value(key)` — remove a single key
+- `ctx.clear_all_kv_values()` — clear all keys for the active instance
+- `ctx.prune_kv_values_updated_before(cutoff_ms)` — prune keys older than the provided persisted-update cutoff
+- `ctx.get_kv_value_from_instance(instance_id, key)` — read another instance's KV via the built-in syscall activity
 
 **Client methods:**
-- `client.get_value(instance_id, key)` — read a key immediately
-- `client.wait_for_value(instance_id, key, timeout_ms)` — block until the key exists or timeout
+- `client.get_kv_value(instance_id, key)` — read a key immediately
+- `client.get_kv_value_typed(instance_id, key)` — read a key and JSON-decode it
+- `client.wait_for_kv_value(instance_id, key, timeout_ms)` — block until the key exists or timeout
+- `client.wait_for_kv_value_typed(instance_id, key, timeout_ms)` — wait for a key and JSON-decode it
 
 **Limits:**
-- `MAX_KV_KEYS = 10`
+- `MAX_KV_KEYS = 100`
 - `MAX_KV_VALUE_BYTES = 16384`
 
 ## Event Queues — Persistent FIFO Message Passing

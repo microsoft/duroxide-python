@@ -16,10 +16,14 @@ from duroxide._duroxide import (
     orchestration_set_custom_status,
     orchestration_reset_custom_status,
     orchestration_get_custom_status,
-    orchestration_set_value,
-    orchestration_get_value,
-    orchestration_clear_value,
-    orchestration_clear_all_values,
+    orchestration_set_kv_value,
+    orchestration_get_kv_value,
+    orchestration_get_kv_all_values,
+    orchestration_get_kv_all_keys,
+    orchestration_get_kv_length,
+    orchestration_clear_kv_value,
+    orchestration_clear_all_kv_values,
+    orchestration_prune_kv_values,
     activity_trace_log,
     activity_is_cancelled,
     activity_tag,
@@ -459,23 +463,39 @@ class OrchestrationContext:
         """
         return orchestration_get_custom_status(self.instance_id)
 
-    def set_value(self, key: str, value: str):
+    def set_kv_value(self, key: str, value: str):
         """Set a key-value pair scoped to this orchestration instance."""
-        orchestration_set_value(self.instance_id, str(key), str(value))
+        orchestration_set_kv_value(self.instance_id, str(key), str(value))
 
-    def get_value(self, key: str) -> Optional[str]:
+    def get_kv_value(self, key: str) -> Optional[str]:
         """Get the current value for a key. Returns None if not set."""
-        return orchestration_get_value(self.instance_id, str(key))
+        return orchestration_get_kv_value(self.instance_id, str(key))
 
-    def clear_value(self, key: str):
+    def get_kv_all_values(self) -> dict[str, str]:
+        """Return a snapshot of all key-value pairs for this orchestration instance."""
+        return orchestration_get_kv_all_values(self.instance_id)
+
+    def get_kv_all_keys(self) -> list[str]:
+        """Return the list of KV keys currently set on this orchestration instance."""
+        return orchestration_get_kv_all_keys(self.instance_id)
+
+    def get_kv_length(self) -> int:
+        """Return the number of KV entries currently set on this orchestration instance."""
+        return orchestration_get_kv_length(self.instance_id)
+
+    def clear_kv_value(self, key: str):
         """Remove a single key from the KV store."""
-        orchestration_clear_value(self.instance_id, str(key))
+        orchestration_clear_kv_value(self.instance_id, str(key))
 
-    def clear_all_values(self):
+    def clear_all_kv_values(self):
         """Clear ALL key-value pairs for this orchestration instance."""
-        orchestration_clear_all_values(self.instance_id)
+        orchestration_clear_all_kv_values(self.instance_id)
 
-    def get_value_from_instance(self, instance_id: str, key: str) -> ScheduledTask:
+    def prune_kv_values_updated_before(self, cutoff_ms: int) -> int:
+        """Prune KV entries whose last persisted update is older than cutoff_ms."""
+        return orchestration_prune_kv_values(self.instance_id, cutoff_ms)
+
+    def get_kv_value_from_instance(self, instance_id: str, key: str) -> ScheduledTask:
         """Read a KV value from another orchestration instance via the built-in syscall activity."""
         return ScheduledTask({
             "type": "activity",

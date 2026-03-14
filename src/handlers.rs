@@ -1,6 +1,6 @@
+use parking_lot::Mutex;
 use pyo3::prelude::*;
 use std::collections::HashMap;
-use parking_lot::Mutex;
 use std::time::Duration;
 
 use duroxide::{ActivityContext, OrchestrationContext};
@@ -13,8 +13,7 @@ use crate::types::{GeneratorStepResult, RetryPolicyConfig, ScheduledTask};
 static ACTIVITY_CTXS: std::sync::LazyLock<Mutex<HashMap<String, ActivityContext>>> =
     std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
 
-static ACTIVITY_TOKEN_COUNTER: std::sync::atomic::AtomicU64 =
-    std::sync::atomic::AtomicU64::new(0);
+static ACTIVITY_TOKEN_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 fn new_activity_token() -> String {
     let id = ACTIVITY_TOKEN_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -91,9 +90,7 @@ impl OrchestrationInvokeGuard {
 
 impl Drop for OrchestrationInvokeGuard {
     fn drop(&mut self) {
-        ORCHESTRATION_CTXS
-            .lock()
-            .remove(&self.instance_id);
+        ORCHESTRATION_CTXS.lock().remove(&self.instance_id);
 
         let Some(gen_id) = self.gen_id.take() else {
             return;
@@ -140,33 +137,65 @@ pub fn orchestration_get_custom_status(instance_id: &str) -> Option<String> {
 }
 
 /// Called from Python to set a KV value on the OrchestrationContext.
-pub fn orchestration_set_value(instance_id: &str, key: &str, value: &str) {
+pub fn orchestration_set_kv_value(instance_id: &str, key: &str, value: &str) {
     let map = ORCHESTRATION_CTXS.lock();
     if let Some(ctx) = map.get(instance_id) {
-        ctx.set_value(key, value);
+        ctx.set_kv_value(key, value);
     }
 }
 
 /// Called from Python to read a KV value from the OrchestrationContext.
-pub fn orchestration_get_value(instance_id: &str, key: &str) -> Option<String> {
+pub fn orchestration_get_kv_value(instance_id: &str, key: &str) -> Option<String> {
     let map = ORCHESTRATION_CTXS.lock();
-    map.get(instance_id).and_then(|ctx| ctx.get_value(key))
+    map.get(instance_id).and_then(|ctx| ctx.get_kv_value(key))
+}
+
+/// Called from Python to read all KV values from the OrchestrationContext.
+pub fn orchestration_get_kv_all_values(instance_id: &str) -> HashMap<String, String> {
+    let map = ORCHESTRATION_CTXS.lock();
+    map.get(instance_id)
+        .map(|ctx| ctx.get_kv_all_values())
+        .unwrap_or_default()
+}
+
+/// Called from Python to read all KV keys from the OrchestrationContext.
+pub fn orchestration_get_kv_all_keys(instance_id: &str) -> Vec<String> {
+    let map = ORCHESTRATION_CTXS.lock();
+    map.get(instance_id)
+        .map(|ctx| ctx.get_kv_all_keys())
+        .unwrap_or_default()
+}
+
+/// Called from Python to read the KV length from the OrchestrationContext.
+pub fn orchestration_get_kv_length(instance_id: &str) -> usize {
+    let map = ORCHESTRATION_CTXS.lock();
+    map.get(instance_id)
+        .map(|ctx| ctx.get_kv_length())
+        .unwrap_or_default()
 }
 
 /// Called from Python to clear a single KV value on the OrchestrationContext.
-pub fn orchestration_clear_value(instance_id: &str, key: &str) {
+pub fn orchestration_clear_kv_value(instance_id: &str, key: &str) {
     let map = ORCHESTRATION_CTXS.lock();
     if let Some(ctx) = map.get(instance_id) {
-        ctx.clear_value(key);
+        ctx.clear_kv_value(key);
     }
 }
 
 /// Called from Python to clear all KV values on the OrchestrationContext.
-pub fn orchestration_clear_all_values(instance_id: &str) {
+pub fn orchestration_clear_all_kv_values(instance_id: &str) {
     let map = ORCHESTRATION_CTXS.lock();
     if let Some(ctx) = map.get(instance_id) {
-        ctx.clear_all_values();
+        ctx.clear_all_kv_values();
     }
+}
+
+/// Called from Python to prune KV values older than the provided cutoff.
+pub fn orchestration_prune_kv_values(instance_id: &str, cutoff_ms: u64) -> usize {
+    let map = ORCHESTRATION_CTXS.lock();
+    map.get(instance_id)
+        .map(|ctx| ctx.prune_kv_values_updated_before(cutoff_ms))
+        .unwrap_or_default()
 }
 
 // ─── Activity Bridge ─────────────────────────────────────────────
@@ -185,9 +214,7 @@ impl PyActivityHandler {
     pub async fn invoke(&self, ctx: ActivityContext, input: String) -> Result<String, String> {
         // Store ctx in global map with a unique token so Python trace calls can find it
         let token = new_activity_token();
-        ACTIVITY_CTXS
-            .lock()
-            .insert(token.clone(), ctx.clone());
+        ACTIVITY_CTXS.lock().insert(token.clone(), ctx.clone());
         let _guard = ActivityCtxGuard {
             token: token.clone(),
         };
@@ -301,7 +328,11 @@ impl PyOrchestrationHandler {
         match task {
             ScheduledTask::Activity { name, input, tag } => {
                 let future = ctx.schedule_activity(&name, input);
-                match if let Some(t) = tag { future.with_tag(t).await } else { future.await } {
+                match if let Some(t) = tag {
+                    future.with_tag(t).await
+                } else {
+                    future.await
+                } {
                     Ok(val) => TaskResult::Ok(val),
                     Err(err) => TaskResult::Err(err),
                 }
@@ -313,7 +344,11 @@ impl PyOrchestrationHandler {
                 tag,
             } => {
                 let future = ctx.schedule_activity_on_session(&name, input, session_id);
-                match if let Some(t) = tag { future.with_tag(t).await } else { future.await } {
+                match if let Some(t) = tag {
+                    future.with_tag(t).await
+                } else {
+                    future.await
+                } {
                     Ok(val) => TaskResult::Ok(val),
                     Err(err) => TaskResult::Err(err),
                 }
@@ -446,7 +481,9 @@ impl PyOrchestrationHandler {
             } => {
                 if let Some(t) = tag {
                     let policy = convert_retry_policy(&retry);
-                    match retry_on_session_with_tag(ctx, &name, &input, &session_id, &t, &policy).await {
+                    match retry_on_session_with_tag(ctx, &name, &input, &session_id, &t, &policy)
+                        .await
+                    {
                         Ok(val) => TaskResult::Ok(val),
                         Err(err) => TaskResult::Err(err),
                     }
@@ -549,7 +586,11 @@ fn make_select_future(
     match task {
         ScheduledTask::Activity { name, input, tag } => Box::pin(async move {
             let future = ctx.schedule_activity(&name, input);
-            match if let Some(t) = tag { future.with_tag(t).await } else { future.await } {
+            match if let Some(t) = tag {
+                future.with_tag(t).await
+            } else {
+                future.await
+            } {
                 Ok(v) => v,
                 Err(e) => e,
             }
@@ -561,7 +602,11 @@ fn make_select_future(
             tag,
         } => Box::pin(async move {
             let future = ctx.schedule_activity_on_session(&name, input, session_id);
-            match if let Some(t) = tag { future.with_tag(t).await } else { future.await } {
+            match if let Some(t) = tag {
+                future.with_tag(t).await
+            } else {
+                future.await
+            } {
                 Ok(v) => v,
                 Err(e) => e,
             }
@@ -651,7 +696,8 @@ fn make_select_future(
         } => Box::pin(async move {
             if let Some(t) = tag {
                 let policy = convert_retry_policy(&retry);
-                match retry_on_session_with_tag(ctx, &name, &input, &session_id, &t, &policy).await {
+                match retry_on_session_with_tag(ctx, &name, &input, &session_id, &t, &policy).await
+                {
                     Ok(v) => v,
                     Err(e) => e,
                 }
@@ -673,14 +719,14 @@ fn make_select_future(
 /// Wrap a raw string value as `{"ok": <parsed>}` or `{"err": <parsed>}` JSON.
 /// Parses the string as JSON first to avoid double-serialization.
 fn wrap_ok(val: String) -> String {
-    let parsed = serde_json::from_str::<serde_json::Value>(&val)
-        .unwrap_or(serde_json::Value::String(val));
+    let parsed =
+        serde_json::from_str::<serde_json::Value>(&val).unwrap_or(serde_json::Value::String(val));
     serde_json::json!({ "ok": parsed }).to_string()
 }
 
 fn wrap_err(val: String) -> String {
-    let parsed = serde_json::from_str::<serde_json::Value>(&val)
-        .unwrap_or(serde_json::Value::String(val));
+    let parsed =
+        serde_json::from_str::<serde_json::Value>(&val).unwrap_or(serde_json::Value::String(val));
     serde_json::json!({ "err": parsed }).to_string()
 }
 
@@ -692,7 +738,11 @@ fn make_join_future(
     match task {
         ScheduledTask::Activity { name, input, tag } => Box::pin(async move {
             let future = ctx.schedule_activity(&name, input);
-            match if let Some(t) = tag { future.with_tag(t).await } else { future.await } {
+            match if let Some(t) = tag {
+                future.with_tag(t).await
+            } else {
+                future.await
+            } {
                 Ok(v) => wrap_ok(v),
                 Err(e) => wrap_err(e),
             }
@@ -704,7 +754,11 @@ fn make_join_future(
             tag,
         } => Box::pin(async move {
             let future = ctx.schedule_activity_on_session(&name, input, session_id);
-            match if let Some(t) = tag { future.with_tag(t).await } else { future.await } {
+            match if let Some(t) = tag {
+                future.with_tag(t).await
+            } else {
+                future.await
+            } {
                 Ok(v) => wrap_ok(v),
                 Err(e) => wrap_err(e),
             }
@@ -796,7 +850,8 @@ fn make_join_future(
         } => Box::pin(async move {
             if let Some(t) = tag {
                 let policy = convert_retry_policy(&retry);
-                match retry_on_session_with_tag(ctx, &name, &input, &session_id, &t, &policy).await {
+                match retry_on_session_with_tag(ctx, &name, &input, &session_id, &t, &policy).await
+                {
                     Ok(v) => wrap_ok(v),
                     Err(e) => wrap_err(e),
                 }
@@ -811,9 +866,9 @@ fn make_join_future(
                 }
             }
         }),
-        _ => Box::pin(async {
-            serde_json::json!({ "err": "unsupported task in join" }).to_string()
-        }),
+        _ => {
+            Box::pin(async { serde_json::json!({ "err": "unsupported task in join" }).to_string() })
+        }
     }
 }
 
@@ -826,11 +881,10 @@ impl duroxide::runtime::OrchestrationHandler for PyOrchestrationHandler {
         ORCHESTRATION_CTXS
             .lock()
             .insert(instance_id.clone(), ctx.clone());
-        let mut guard =
-            OrchestrationInvokeGuard::new(
-                instance_id.clone(),
-                Python::with_gil(|py| self.dispose_fn.clone_ref(py)),
-            );
+        let mut guard = OrchestrationInvokeGuard::new(
+            instance_id.clone(),
+            Python::with_gil(|py| self.dispose_fn.clone_ref(py)),
+        );
 
         let ctx_info = serde_json::json!({
             "instanceId": ctx.instance_id(),
@@ -851,10 +905,7 @@ impl duroxide::runtime::OrchestrationHandler for PyOrchestrationHandler {
         let (gen_id, mut current_step) = match first_step {
             GeneratorStepResult::Completed { output } => return Ok(output),
             GeneratorStepResult::Error { message } => return Err(message),
-            GeneratorStepResult::Yielded {
-                generator_id,
-                task,
-            } => {
+            GeneratorStepResult::Yielded { generator_id, task } => {
                 guard.set_gen_id(generator_id);
                 (generator_id, task)
             }

@@ -359,30 +359,30 @@ KV operations are fire-and-forget orchestration context calls backed by provider
 ```
 Python                              Rust (PyO3)                        Provider (DB)
 ──────                              ───────────                        ─────────────
-ctx.set_value("status", "ready")
+ctx.set_kv_value("status", "ready")
   │
-  └─► orchestration_set_value(instance_id, "status", "ready")
+  └─► orchestration_set_kv_value(instance_id, "status", "ready")
         │
         └─► ORCHESTRATION_CTXS.get(instance_id)
               │
-              └─► ctx.set_value("status", "ready")
+              └─► ctx.set_kv_value("status", "ready")
                     │
                     └─► provider.upsert KV row for (instance_id, key)
 
-client.get_value(id, "status")
+client.get_kv_value(id, "status")
   │
-  └─► py.allow_threads(|| TOKIO_RT.block_on(client.get_value(id, "status")))
+  └─► py.allow_threads(|| TOKIO_RT.block_on(client.get_kv_value(id, "status")))
         │
-        └─► provider.get_value(id, "status")
+        └─► provider.get_kv_value(id, "status")
 
-client.wait_for_value(id, "status", timeout_ms)
+client.wait_for_kv_value(id, "status", timeout_ms)
   │
-  └─► py.allow_threads(|| TOKIO_RT.block_on(client.wait_for_value(...)))
+  └─► py.allow_threads(|| TOKIO_RT.block_on(client.wait_for_kv_value(...)))
         │
-        └─► repeated provider.get_value(...) polling until key exists or timeout
+        └─► repeated provider.get_kv_value(...) polling until key exists or timeout
 ```
 
-Cross-orchestration reads use the built-in `__duroxide_syscall:get_kv_value` activity. In Python this is exposed as `ctx.get_value_from_instance(instance_id, key)` and replays like any other scheduled activity.
+Cross-orchestration reads use the built-in `__duroxide_syscall:get_kv_value` activity. In Python this is exposed as `ctx.get_kv_value_from_instance(instance_id, key)` and replays like any other scheduled activity. The local in-memory snapshot also exposes `ctx.get_kv_all_values()`, `ctx.get_kv_all_keys()`, `ctx.get_kv_length()`, and `ctx.prune_kv_values_updated_before(cutoff_ms)` for bulk inspection and pruning without yielding.
 
 ## Event Queue Data Flow
 

@@ -58,26 +58,52 @@ fn orchestration_get_custom_status(instance_id: String) -> Option<String> {
 
 /// Set a KV value on an orchestration (fire-and-forget, no yield needed).
 #[pyfunction]
-fn orchestration_set_value(instance_id: String, key: String, value: String) {
-    handlers::orchestration_set_value(&instance_id, &key, &value);
+fn orchestration_set_kv_value(instance_id: String, key: String, value: String) {
+    handlers::orchestration_set_kv_value(&instance_id, &key, &value);
 }
 
 /// Read a KV value from an orchestration context.
 #[pyfunction]
-fn orchestration_get_value(instance_id: String, key: String) -> Option<String> {
-    handlers::orchestration_get_value(&instance_id, &key)
+fn orchestration_get_kv_value(instance_id: String, key: String) -> Option<String> {
+    handlers::orchestration_get_kv_value(&instance_id, &key)
+}
+
+/// Read all KV values from an orchestration context.
+#[pyfunction]
+fn orchestration_get_kv_all_values(
+    instance_id: String,
+) -> std::collections::HashMap<String, String> {
+    handlers::orchestration_get_kv_all_values(&instance_id)
+}
+
+/// Read all KV keys from an orchestration context.
+#[pyfunction]
+fn orchestration_get_kv_all_keys(instance_id: String) -> Vec<String> {
+    handlers::orchestration_get_kv_all_keys(&instance_id)
+}
+
+/// Read the KV length from an orchestration context.
+#[pyfunction]
+fn orchestration_get_kv_length(instance_id: String) -> usize {
+    handlers::orchestration_get_kv_length(&instance_id)
 }
 
 /// Clear a single KV value on an orchestration (fire-and-forget, no yield needed).
 #[pyfunction]
-fn orchestration_clear_value(instance_id: String, key: String) {
-    handlers::orchestration_clear_value(&instance_id, &key);
+fn orchestration_clear_kv_value(instance_id: String, key: String) {
+    handlers::orchestration_clear_kv_value(&instance_id, &key);
 }
 
 /// Clear all KV values on an orchestration (fire-and-forget, no yield needed).
 #[pyfunction]
-fn orchestration_clear_all_values(instance_id: String) {
-    handlers::orchestration_clear_all_values(&instance_id);
+fn orchestration_clear_all_kv_values(instance_id: String) {
+    handlers::orchestration_clear_all_kv_values(&instance_id);
+}
+
+/// Prune KV values older than the provided cutoff.
+#[pyfunction]
+fn orchestration_prune_kv_values(instance_id: String, cutoff_ms: u64) -> usize {
+    handlers::orchestration_prune_kv_values(&instance_id, cutoff_ms)
 }
 
 /// Get a Client from the stored ActivityContext (for use in activities).
@@ -98,20 +124,22 @@ fn init_tracing(
     log_level: Option<String>,
     log_format: Option<String>,
 ) -> PyResult<()> {
-    use std::fs::OpenOptions;
     use pyo3::exceptions::PyRuntimeError;
-    use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
+    use std::fs::OpenOptions;
+    use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
     let level = log_level.unwrap_or_else(|| "info".to_string());
     let filter_expr = format!("warn,duroxide::orchestration={level},duroxide::activity={level}");
-    let env_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(filter_expr));
+    let env_filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(filter_expr));
 
     let file = OpenOptions::new()
         .create(true)
         .append(true)
         .open(&log_file)
-        .map_err(|e| PyRuntimeError::new_err(format!("Failed to open log file '{log_file}': {e}")))?;
+        .map_err(|e| {
+            PyRuntimeError::new_err(format!("Failed to open log file '{log_file}': {e}"))
+        })?;
 
     let format = log_format.unwrap_or_default();
     match format.as_str() {
@@ -151,10 +179,14 @@ fn _duroxide(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(orchestration_set_custom_status, m)?)?;
     m.add_function(wrap_pyfunction!(orchestration_reset_custom_status, m)?)?;
     m.add_function(wrap_pyfunction!(orchestration_get_custom_status, m)?)?;
-    m.add_function(wrap_pyfunction!(orchestration_set_value, m)?)?;
-    m.add_function(wrap_pyfunction!(orchestration_get_value, m)?)?;
-    m.add_function(wrap_pyfunction!(orchestration_clear_value, m)?)?;
-    m.add_function(wrap_pyfunction!(orchestration_clear_all_values, m)?)?;
+    m.add_function(wrap_pyfunction!(orchestration_set_kv_value, m)?)?;
+    m.add_function(wrap_pyfunction!(orchestration_get_kv_value, m)?)?;
+    m.add_function(wrap_pyfunction!(orchestration_get_kv_all_values, m)?)?;
+    m.add_function(wrap_pyfunction!(orchestration_get_kv_all_keys, m)?)?;
+    m.add_function(wrap_pyfunction!(orchestration_get_kv_length, m)?)?;
+    m.add_function(wrap_pyfunction!(orchestration_clear_kv_value, m)?)?;
+    m.add_function(wrap_pyfunction!(orchestration_clear_all_kv_values, m)?)?;
+    m.add_function(wrap_pyfunction!(orchestration_prune_kv_values, m)?)?;
     m.add_function(wrap_pyfunction!(activity_get_client, m)?)?;
     m.add_function(wrap_pyfunction!(init_tracing, m)?)?;
     m.add_class::<provider::PySqliteProvider>()?;

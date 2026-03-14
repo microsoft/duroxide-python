@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.15] - 2026-03-14
+
+### Changed
+- Bumped `duroxide` dependency to 0.1.25.
+- Patched local builds to use the sibling `../../providers/duroxide-pg` checkout until a crates.io release includes the KV snapshot changes required by `duroxide` 0.1.25.
+- Renamed KV APIs to the new `kv_`-prefixed surface: `ctx.set_kv_value()`, `ctx.get_kv_value()`, `ctx.clear_kv_value()`, `ctx.clear_all_kv_values()`, `ctx.get_kv_value_from_instance()`, `client.get_kv_value()`, and `client.wait_for_kv_value()`.
+- Raised `MAX_KV_KEYS` from 10 to 100.
+
+### Added
+- New orchestration KV helpers: `ctx.get_kv_all_values()`, `ctx.get_kv_all_keys()`, `ctx.get_kv_length()`, and `ctx.prune_kv_values_updated_before(cutoff_ms)`.
+- New typed client conveniences: `client.get_kv_value_typed()` and `client.wait_for_kv_value_typed()`.
+
 ## [0.1.14] - 2026-03-13
 
 - **KV store support:** Durable key-value store for per-instance state

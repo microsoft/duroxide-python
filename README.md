@@ -16,10 +16,10 @@ Write durable workflows as Python generators. The Rust runtime handles replay, p
 - **Deterministic replay** — safe resume after crashes
 - **SQLite & PostgreSQL** — pluggable storage providers
 - **Custom Status** — `ctx.set_custom_status()` / `ctx.reset_custom_status()` for orchestration progress reporting, `client.wait_for_status_change()` for efficient polling
-- **KV Store** — durable per-instance state via `ctx.set_value()` / `ctx.get_value()` / `ctx.clear_value()` / `ctx.clear_all_values()`, plus `client.get_value()` / `client.wait_for_value()`
+- **KV Store** — durable per-instance state via `ctx.set_kv_value()` / `ctx.get_kv_value()` / `ctx.get_kv_all_values()` / `ctx.get_kv_all_keys()` / `ctx.get_kv_length()` / `ctx.clear_kv_value()` / `ctx.clear_all_kv_values()` / `ctx.prune_kv_values_updated_before()`, plus `client.get_kv_value()` / `client.wait_for_kv_value()`
 - **Event Queues** — `ctx.dequeue_event(queue_name)` for FIFO mailbox-style message passing, `client.enqueue_event()` to send messages
 - **Retry on Session** — `ctx.schedule_activity_with_retry_on_session()` for retry with session affinity
-- **Tag Routing** — worker tags for activity affinity (`MAX_WORKER_TAGS=5`, `MAX_TAG_NAME_BYTES=256`, `MAX_KV_KEYS=10`, `MAX_KV_VALUE_BYTES=16384`)
+- **Tag Routing** — worker tags for activity affinity (`MAX_WORKER_TAGS=5`, `MAX_TAG_NAME_BYTES=256`, `MAX_KV_KEYS=100`, `MAX_KV_VALUE_BYTES=16384`)
 - **Admin APIs** — instance management, metrics, pruning
 - **Activity client access** — `ctx.get_client()` lets activities start new orchestrations
 - **Runtime metrics** — `metrics_snapshot()` for orchestration/activity counters
@@ -186,17 +186,20 @@ Durable per-instance key-value state for orchestration coordination and request/
 ```python
 @runtime.register_orchestration("KvWorkflow")
 def kv_workflow(ctx, input):
-    ctx.set_value("status", "running")
+    ctx.set_kv_value("status", "running")
     result = yield ctx.schedule_activity("Compute", input)
-    ctx.set_value("result", str(result))
-    return result
+    ctx.set_kv_value("result", str(result))
+    snapshot = ctx.get_kv_all_values()
+    keys = ctx.get_kv_all_keys()
+    count = ctx.get_kv_length()
+    return {"result": result, "snapshot": snapshot, "keys": keys, "count": count}
 
 # External reads
-status = client.wait_for_value("instance-1", "status", 10000)
-result = client.get_value("instance-1", "result")
+status = client.wait_for_kv_value("instance-1", "status", 10000)
+result = client.get_kv_value("instance-1", "result")
 ```
 
-KV entries are scoped to a single orchestration instance and remain readable after completion until the instance is deleted or pruned.
+KV entries are scoped to a single orchestration instance and remain readable after completion until the instance is deleted or pruned. Use `ctx.prune_kv_values_updated_before(cutoff_ms)` to deterministically clear stale keys from prior turns when you only want to retain newer state.
 
 ## Event Queues
 

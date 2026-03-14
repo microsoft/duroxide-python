@@ -17,57 +17,64 @@ use crate::types::{
 /// Extract event-specific data as a JSON string from an EventKind.
 fn extract_event_data(kind: &duroxide::EventKind) -> Option<String> {
     match kind {
-        duroxide::EventKind::OrchestrationStarted { input, name, version, .. } => {
-            Some(format!(r#"{{"name":{},"version":{},"input":{}}}"#,
-                serde_json::to_string(name).unwrap_or_default(),
-                serde_json::to_string(version).unwrap_or_default(),
-                input))
-        }
+        duroxide::EventKind::OrchestrationStarted {
+            input,
+            name,
+            version,
+            ..
+        } => Some(format!(
+            r#"{{"name":{},"version":{},"input":{}}}"#,
+            serde_json::to_string(name).unwrap_or_default(),
+            serde_json::to_string(version).unwrap_or_default(),
+            input
+        )),
         duroxide::EventKind::OrchestrationCompleted { output } => Some(output.clone()),
-        duroxide::EventKind::OrchestrationFailed { details } => {
-            serde_json::to_string(details).ok()
-        }
-        duroxide::EventKind::ActivityScheduled { name, input, .. } => {
-            Some(format!(r#"{{"name":{},"input":{}}}"#,
-                serde_json::to_string(name).unwrap_or_default(),
-                input))
-        }
+        duroxide::EventKind::OrchestrationFailed { details } => serde_json::to_string(details).ok(),
+        duroxide::EventKind::ActivityScheduled { name, input, .. } => Some(format!(
+            r#"{{"name":{},"input":{}}}"#,
+            serde_json::to_string(name).unwrap_or_default(),
+            input
+        )),
         duroxide::EventKind::ActivityCompleted { result } => Some(result.clone()),
-        duroxide::EventKind::ActivityFailed { details } => {
-            serde_json::to_string(details).ok()
-        }
+        duroxide::EventKind::ActivityFailed { details } => serde_json::to_string(details).ok(),
         duroxide::EventKind::TimerCreated { fire_at_ms } => {
             Some(format!(r#"{{"fireAtMs":{}}}"#, fire_at_ms))
         }
         duroxide::EventKind::TimerFired { fire_at_ms } => {
             Some(format!(r#"{{"fireAtMs":{}}}"#, fire_at_ms))
         }
-        duroxide::EventKind::ExternalSubscribed { name } => {
-            Some(format!(r#"{{"name":{}}}"#, serde_json::to_string(name).unwrap_or_default()))
-        }
-        duroxide::EventKind::ExternalEvent { name, data } => {
-            Some(format!(r#"{{"name":{},"data":{}}}"#,
-                serde_json::to_string(name).unwrap_or_default(),
-                data))
-        }
-        duroxide::EventKind::SubOrchestrationScheduled { name, instance, input } => {
-            Some(format!(r#"{{"name":{},"instance":{},"input":{}}}"#,
-                serde_json::to_string(name).unwrap_or_default(),
-                serde_json::to_string(instance).unwrap_or_default(),
-                input))
-        }
+        duroxide::EventKind::ExternalSubscribed { name } => Some(format!(
+            r#"{{"name":{}}}"#,
+            serde_json::to_string(name).unwrap_or_default()
+        )),
+        duroxide::EventKind::ExternalEvent { name, data } => Some(format!(
+            r#"{{"name":{},"data":{}}}"#,
+            serde_json::to_string(name).unwrap_or_default(),
+            data
+        )),
+        duroxide::EventKind::SubOrchestrationScheduled {
+            name,
+            instance,
+            input,
+        } => Some(format!(
+            r#"{{"name":{},"instance":{},"input":{}}}"#,
+            serde_json::to_string(name).unwrap_or_default(),
+            serde_json::to_string(instance).unwrap_or_default(),
+            input
+        )),
         duroxide::EventKind::SubOrchestrationCompleted { result } => Some(result.clone()),
         duroxide::EventKind::SubOrchestrationFailed { details } => {
             serde_json::to_string(details).ok()
         }
-        duroxide::EventKind::QueueSubscribed { name } => {
-            Some(format!(r#"{{"name":{}}}"#, serde_json::to_string(name).unwrap_or_default()))
-        }
-        duroxide::EventKind::QueueEventDelivered { name, data } => {
-            Some(format!(r#"{{"name":{},"data":{}}}"#,
-                serde_json::to_string(name).unwrap_or_default(),
-                data))
-        }
+        duroxide::EventKind::QueueSubscribed { name } => Some(format!(
+            r#"{{"name":{}}}"#,
+            serde_json::to_string(name).unwrap_or_default()
+        )),
+        duroxide::EventKind::QueueEventDelivered { name, data } => Some(format!(
+            r#"{{"name":{},"data":{}}}"#,
+            serde_json::to_string(name).unwrap_or_default(),
+            data
+        )),
         _ => None,
     }
 }
@@ -272,7 +279,7 @@ impl PyClient {
     }
 
     /// Read a single KV entry for an orchestration instance.
-    fn get_value(
+    fn get_kv_value(
         &self,
         py: Python<'_>,
         instance_id: String,
@@ -280,13 +287,18 @@ impl PyClient {
     ) -> PyResult<Option<String>> {
         let client = self.inner.clone();
         py.allow_threads(|| {
-            TOKIO_RT.block_on(async { client.get_value(&instance_id, &key).await.map_err(|e| format!("{e}")) })
+            TOKIO_RT.block_on(async {
+                client
+                    .get_kv_value(&instance_id, &key)
+                    .await
+                    .map_err(|e| format!("{e}"))
+            })
         })
         .map_err(|e: String| pyo3::exceptions::PyRuntimeError::new_err(e))
     }
 
     /// Wait for a KV entry to become available on an orchestration instance.
-    fn wait_for_value(
+    fn wait_for_kv_value(
         &self,
         py: Python<'_>,
         instance_id: String,
@@ -298,7 +310,7 @@ impl PyClient {
         py.allow_threads(|| {
             TOKIO_RT.block_on(async {
                 client
-                    .wait_for_value(&instance_id, &key, timeout)
+                    .wait_for_kv_value(&instance_id, &key, timeout)
                     .await
                     .map_err(|e| format!("{e}"))
             })
@@ -362,11 +374,7 @@ impl PyClient {
     }
 
     /// List orchestration instance IDs by status.
-    fn list_instances_by_status(
-        &self,
-        py: Python<'_>,
-        status: String,
-    ) -> PyResult<Vec<String>> {
+    fn list_instances_by_status(&self, py: Python<'_>, status: String) -> PyResult<Vec<String>> {
         let client = self.inner.clone();
         py.allow_threads(|| {
             TOKIO_RT.block_on(async {
@@ -380,11 +388,7 @@ impl PyClient {
     }
 
     /// Get detailed info about a specific instance.
-    fn get_instance_info(
-        &self,
-        py: Python<'_>,
-        instance_id: String,
-    ) -> PyResult<PyInstanceInfo> {
+    fn get_instance_info(&self, py: Python<'_>, instance_id: String) -> PyResult<PyInstanceInfo> {
         let client = self.inner.clone();
         py.allow_threads(|| {
             TOKIO_RT.block_on(async {
@@ -488,11 +492,7 @@ impl PyClient {
     }
 
     /// Get the full instance tree (root + all descendants).
-    fn get_instance_tree(
-        &self,
-        py: Python<'_>,
-        instance_id: String,
-    ) -> PyResult<PyInstanceTree> {
+    fn get_instance_tree(&self, py: Python<'_>, instance_id: String) -> PyResult<PyInstanceTree> {
         let client = self.inner.clone();
         py.allow_threads(|| {
             TOKIO_RT.block_on(async {
@@ -636,21 +636,32 @@ fn convert_status(status: OrchestrationStatus) -> PyOrchestrationStatus {
             custom_status: None,
             custom_status_version: 0,
         },
-        OrchestrationStatus::Running { custom_status, custom_status_version } => PyOrchestrationStatus {
+        OrchestrationStatus::Running {
+            custom_status,
+            custom_status_version,
+        } => PyOrchestrationStatus {
             status: "Running".to_string(),
             output: None,
             error: None,
             custom_status,
             custom_status_version,
         },
-        OrchestrationStatus::Completed { output, custom_status, custom_status_version } => PyOrchestrationStatus {
+        OrchestrationStatus::Completed {
+            output,
+            custom_status,
+            custom_status_version,
+        } => PyOrchestrationStatus {
             status: "Completed".to_string(),
             output: Some(output),
             error: None,
             custom_status,
             custom_status_version,
         },
-        OrchestrationStatus::Failed { details, custom_status, custom_status_version } => PyOrchestrationStatus {
+        OrchestrationStatus::Failed {
+            details,
+            custom_status,
+            custom_status_version,
+        } => PyOrchestrationStatus {
             status: "Failed".to_string(),
             output: None,
             error: Some(details.display_message()),
