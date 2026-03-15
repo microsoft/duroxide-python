@@ -179,3 +179,37 @@ def test_kv_cross_orchestration_read(provider):
         assert client.get_kv_value(producer_id, "status") == "done"
     finally:
         runtime.shutdown(100)
+
+
+def test_kv_read_modify_write_counter(provider):
+    client = Client(provider)
+    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+
+    @runtime.register_activity("ProcessBatch")
+    def process_batch(_ctx, input):
+        return f"processed:{input}"
+
+    @runtime.register_orchestration("BatchProcessor")
+    def batch_processor(ctx, _input):
+        for batch_name in ["alpha", "beta", "gamma"]:
+            processed = int(ctx.get_kv_value("batches_processed") or "0")
+            result = yield ctx.schedule_activity("ProcessBatch", batch_name)
+            ctx.set_kv_value("batches_processed", str(processed + 1))
+            ctx.set_kv_value("last_result", result)
+
+        return ctx.get_kv_value("batches_processed") or "0"
+
+    runtime.start()
+
+    try:
+        instance_id = uid("batch-processor")
+        client.start_orchestration(instance_id, "BatchProcessor", "")
+
+        result = client.wait_for_orchestration(instance_id, 5_000)
+        assert result.status == "Completed"
+        assert result.output == "3"
+
+        assert client.get_kv_value(instance_id, "batches_processed") == "3"
+        assert client.get_kv_value(instance_id, "last_result") == "processed:gamma"
+    finally:
+        runtime.shutdown(100)
