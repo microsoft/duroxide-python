@@ -17,7 +17,7 @@ from duroxide import (
     PostgresProvider,
     Client,
     Runtime,
-    PyRuntimeOptions,
+    RuntimeOptions,
 )
 
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
@@ -40,7 +40,7 @@ def provider():
 
 def run_orchestration(provider, orch_name, input, setup_fn, timeout_ms=10_000, instance_name=None):
     client = Client(provider)
-    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
     setup_fn(runtime)
     runtime.start()
     try:

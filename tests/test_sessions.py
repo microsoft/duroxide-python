@@ -18,7 +18,7 @@ from duroxide import (
     PostgresProvider,
     Client,
     Runtime,
-    PyRuntimeOptions,
+    RuntimeOptions,
 )
 
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
@@ -43,7 +43,7 @@ def provider():
 def run_orchestration(provider, name, input, setup_fn, timeout_ms=10_000, options=None):
     """Helper: register handlers, start runtime, run one orchestration, shutdown."""
     if options is None:
-        options = PyRuntimeOptions(dispatcher_poll_interval_ms=50)
+        options = RuntimeOptions(dispatcher_poll_interval_ms=50)
     client = Client(provider)
     runtime = Runtime(provider, options)
 
@@ -224,7 +224,7 @@ def test_session_with_runtime_options(provider):
             r = yield ctx.schedule_activity_on_session("Echo", "opts-test", "opts-session")
             return r
 
-    options = PyRuntimeOptions(
+    options = RuntimeOptions(
         dispatcher_poll_interval_ms=50,
         max_sessions_per_runtime=5,
         session_idle_timeout_ms=60000,
@@ -252,7 +252,7 @@ def test_session_with_worker_node_id(provider):
             r2 = yield ctx.schedule_activity_on_session("Work", "b", "stable-sess")
             return f"{r1}|{r2}"
 
-    options = PyRuntimeOptions(
+    options = RuntimeOptions(
         dispatcher_poll_interval_ms=50,
         worker_node_id="test-pod-1",
     )
@@ -271,7 +271,7 @@ def test_sqlite_session_smoketest():
     sqlite_provider = SqliteProvider.in_memory()
     client = Client(sqlite_provider)
     runtime = Runtime(
-        sqlite_provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50)
+        sqlite_provider, RuntimeOptions(dispatcher_poll_interval_ms=50)
     )
 
     @runtime.register_activity("Echo")
@@ -346,7 +346,7 @@ def test_fan_out_multiple_per_session_mixed(provider):
             ])
             return [r.get("ok", r.get("err")) for r in results]
 
-    options = PyRuntimeOptions(
+    options = RuntimeOptions(
         dispatcher_poll_interval_ms=50,
         worker_node_id="test-multi-sess",
     )
@@ -388,7 +388,7 @@ def test_session_survives_continue_as_new(provider):
 def test_session_can_versioned_upgrade(provider):
     """v1 does session work → CAN versioned to v2 → v2 does session work → complete."""
     client = Client(provider)
-    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
 
     @runtime.register_activity("Work")
     def work(ctx, input):

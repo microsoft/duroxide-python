@@ -17,7 +17,7 @@ from duroxide import (
     PostgresProvider,
     Client,
     Runtime,
-    PyRuntimeOptions,
+    RuntimeOptions,
     TagFilter,
 )
 
@@ -40,7 +40,7 @@ def test_tagged_activity_runs_on_matching_worker():
     client = Client(provider)
     runtime = Runtime(
         provider,
-        PyRuntimeOptions(
+        RuntimeOptions(
             dispatcher_poll_interval_ms=50,
             worker_tag_filter=TagFilter.tags(["gpu"]),
         ),
@@ -76,7 +76,7 @@ def test_default_only_ignores_tagged_activity():
     # Default filter = DefaultOnly (no tag filter specified)
     runtime = Runtime(
         provider,
-        PyRuntimeOptions(dispatcher_poll_interval_ms=50),
+        RuntimeOptions(dispatcher_poll_interval_ms=50),
     )
 
     @runtime.register_activity("TaggedWork")
@@ -110,7 +110,7 @@ def test_default_and_filter_processes_both():
     client = Client(provider)
     runtime = Runtime(
         provider,
-        PyRuntimeOptions(
+        RuntimeOptions(
             dispatcher_poll_interval_ms=50,
             worker_tag_filter=TagFilter.default_and(["gpu"]),
         ),
@@ -148,7 +148,7 @@ def test_any_filter_processes_all():
     client = Client(provider)
     runtime = Runtime(
         provider,
-        PyRuntimeOptions(
+        RuntimeOptions(
             dispatcher_poll_interval_ms=50,
             worker_tag_filter=TagFilter.ANY,
         ),
@@ -214,7 +214,7 @@ def test_untagged_activity_returns_none_tag():
     client = Client(provider)
     runtime = Runtime(
         provider,
-        PyRuntimeOptions(dispatcher_poll_interval_ms=50),
+        RuntimeOptions(dispatcher_poll_interval_ms=50),
     )
 
     @runtime.register_activity("Plain")
@@ -254,7 +254,7 @@ def test_heterogeneous_workers_gpu_cpu_untagged():
     client = Client(provider)
     runtime = Runtime(
         provider,
-        PyRuntimeOptions(
+        RuntimeOptions(
             dispatcher_poll_interval_ms=50,
             worker_tag_filter=TagFilter.default_and(["gpu", "cpu"]),
         ),
@@ -295,7 +295,7 @@ def test_starvation_safe_tagged_activity_timeout_fallback():
     client = Client(provider)
     runtime = Runtime(
         provider,
-        PyRuntimeOptions(
+        RuntimeOptions(
             dispatcher_poll_interval_ms=50,
             worker_tag_filter=TagFilter.DEFAULT_ONLY,
         ),
@@ -338,7 +338,7 @@ def test_dual_runtime_orchestrator_plus_gpu_worker():
     # Runtime A: orchestrator + default (CPU) worker
     rt_a = Runtime(
         provider,
-        PyRuntimeOptions(
+        RuntimeOptions(
             dispatcher_poll_interval_ms=50,
             worker_tag_filter=TagFilter.DEFAULT_ONLY,
         ),
@@ -366,7 +366,7 @@ def test_dual_runtime_orchestrator_plus_gpu_worker():
     # Runtime B: GPU worker only (no orchestration dispatcher)
     rt_b = Runtime(
         provider,
-        PyRuntimeOptions(
+        RuntimeOptions(
             dispatcher_poll_interval_ms=50,
             orchestration_concurrency=0,
             worker_tag_filter=TagFilter.tags(["gpu"]),
@@ -408,7 +408,7 @@ def test_nested_error_handling_propagation():
     """Activity error propagates through orchestration via yield."""
     provider = SqliteProvider.in_memory()
     client = Client(provider)
-    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
 
     @runtime.register_activity("ProcessData")
     def process_data(ctx, input):
@@ -447,7 +447,7 @@ def test_error_recovery_with_logging():
     """Activity error caught, logged via another activity, then re-raised."""
     provider = SqliteProvider.in_memory()
     client = Client(provider)
-    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
 
     @runtime.register_activity("ProcessData")
     def process_data(ctx, input):
@@ -493,7 +493,7 @@ def test_pg_tagged_activity(pg_provider):
     client = Client(pg_provider)
     runtime = Runtime(
         pg_provider,
-        PyRuntimeOptions(
+        RuntimeOptions(
             dispatcher_poll_interval_ms=50,
             worker_tag_filter=TagFilter.tags(["gpu"]),
         ),

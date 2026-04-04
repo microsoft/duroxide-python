@@ -28,9 +28,9 @@ from duroxide import (
     PostgresProvider,
     Client,
     Runtime,
-    PyRuntimeOptions,
-    PyPruneOptions,
-    PyInstanceFilter,
+    RuntimeOptions,
+    PruneOptions,
+    InstanceFilter,
 )
 
 # Load .env from project root
@@ -55,7 +55,7 @@ def provider():
 def run_to_completion(provider, orch_name, input, setup_fn, timeout_ms=15_000):
     """Run an orchestration to completion and return (client, result, instance_id)."""
     client = Client(provider)
-    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
     setup_fn(runtime)
     runtime.start()
 
@@ -73,7 +73,7 @@ def run_to_completion(provider, orch_name, input, setup_fn, timeout_ms=15_000):
 
 def test_list_all_instances(provider):
     client = Client(provider)
-    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
 
     runtime.register_activity("echo", lambda ctx, inp: inp)
 
@@ -140,7 +140,35 @@ def test_get_instance_info(provider):
     assert info.updated_at > 0
 
 
-# ─── 4. get_execution_info ───────────────────────────────────────
+# ─── 4. get_orchestration_stats ──────────────────────────────────
+
+
+def test_get_orchestration_stats(provider):
+    def setup(rt):
+        rt.register_activity("echo", lambda ctx, inp: inp)
+
+        @rt.register_orchestration("StatsTest")
+        def stats_test(ctx, input):
+            ctx.set_kv_value("status", "running")
+            result = yield ctx.schedule_activity("echo", input)
+            ctx.set_kv_value("result", json.dumps(result))
+            return result
+
+    client, result, instance_id = run_to_completion(
+        provider, "StatsTest", {"value": 42}, setup
+    )
+
+    stats = client.get_orchestration_stats(instance_id)
+    assert stats is not None
+    assert stats.history_event_count > 0
+    assert stats.history_size_bytes > 0
+    assert stats.kv_user_key_count == 2
+    assert stats.kv_total_value_bytes >= len("running") + len(json.dumps({"value": 42}))
+
+    assert client.get_orchestration_stats(uid("missing-stats")) is None
+
+
+# ─── 5. get_execution_info ───────────────────────────────────────
 
 
 def test_get_execution_info(provider):
@@ -162,12 +190,12 @@ def test_get_execution_info(provider):
     assert info.started_at > 0
 
 
-# ─── 5. list_executions ─────────────────────────────────────────
+# ─── 6. list_executions ─────────────────────────────────────────
 
 
 def test_list_executions(provider):
     client = Client(provider)
-    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
 
     @runtime.register_orchestration("CANExec")
     def can_exec(ctx, input):
@@ -189,7 +217,7 @@ def test_list_executions(provider):
         runtime.shutdown(100)
 
 
-# ─── 6. read_execution_history ───────────────────────────────────
+# ─── 7. read_execution_history ───────────────────────────────────
 
 
 def test_read_execution_history(provider):
@@ -256,12 +284,12 @@ def test_read_execution_history_data(provider):
     assert orch_data["reversed"] is True
 
 
-# ─── 7. get_instance_tree ────────────────────────────────────────
+# ─── 8. get_instance_tree ────────────────────────────────────────
 
 
 def test_get_instance_tree(provider):
     client = Client(provider)
-    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
 
     runtime.register_activity("echo", lambda ctx, inp: inp)
 
@@ -318,7 +346,7 @@ def test_delete_instance(provider):
 
 def test_delete_instance_bulk(provider):
     client = Client(provider)
-    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
 
     runtime.register_activity("echo", lambda ctx, inp: inp)
 
@@ -336,7 +364,7 @@ def test_delete_instance_bulk(provider):
     finally:
         runtime.shutdown(100)
 
-    result = client.delete_instance_bulk(PyInstanceFilter(instance_ids=ids))
+    result = client.delete_instance_bulk(InstanceFilter(instance_ids=ids))
     assert result.instances_deleted >= 2, (
         f"should delete 2+, got {result.instances_deleted}"
     )
@@ -352,7 +380,7 @@ def test_delete_instance_bulk(provider):
 
 def test_prune_executions(provider):
     client = Client(provider)
-    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
 
     @runtime.register_orchestration("PruneTarget")
     def prune_target(ctx, input):
@@ -374,7 +402,7 @@ def test_prune_executions(provider):
     assert len(before) >= 4, f"expected ≥4 executions, got {len(before)}"
 
     # Prune: keep last 1
-    result = client.prune_executions(instance_id, PyPruneOptions(keep_last=1))
+    result = client.prune_executions(instance_id, PruneOptions(keep_last=1))
     assert result.executions_deleted >= 3, (
         f"should prune ≥3, got {result.executions_deleted}"
     )
@@ -388,7 +416,7 @@ def test_prune_executions(provider):
 
 def test_prune_executions_bulk(provider):
     client = Client(provider)
-    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
 
     @runtime.register_orchestration("BulkPrune")
     def bulk_prune(ctx, input):
@@ -408,8 +436,8 @@ def test_prune_executions_bulk(provider):
         runtime.shutdown(100)
 
     result = client.prune_executions_bulk(
-        PyInstanceFilter(instance_ids=ids),
-        PyPruneOptions(keep_last=1),
+        InstanceFilter(instance_ids=ids),
+        PruneOptions(keep_last=1),
     )
     assert result.instances_processed >= 2, (
         f"should process ≥2, got {result.instances_processed}"
@@ -455,7 +483,7 @@ def test_versioned_sub_orchestration(provider):
 
 def test_versioned_detached_orchestration(provider):
     client = Client(provider)
-    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
 
     runtime.register_activity("echo", lambda ctx, inp: inp)
 
@@ -495,7 +523,7 @@ def test_versioned_detached_orchestration(provider):
 
 def test_continue_as_new_versioned(provider):
     client = Client(provider)
-    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
 
     # v1: upgrades to v2 via continue_as_new_versioned
     @runtime.register_orchestration_versioned("VersionedCAN", "1.0.0")

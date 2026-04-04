@@ -196,6 +196,7 @@ fn _duroxide(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<runtime::PyRuntimeOptions>()?;
     m.add_class::<types::PyOrchestrationStatus>()?;
     m.add_class::<types::PySystemMetrics>()?;
+    m.add_class::<types::PySystemStats>()?;
     m.add_class::<types::PyQueueDepths>()?;
     m.add_class::<types::PyInstanceInfo>()?;
     m.add_class::<types::PyExecutionInfo>()?;

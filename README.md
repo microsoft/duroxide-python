@@ -19,7 +19,7 @@ Write durable workflows as Python generators. The Rust runtime handles replay, p
 - **KV Store** — durable per-instance state via `ctx.set_kv_value()` / `ctx.get_kv_value()` / `ctx.get_kv_all_values()` / `ctx.get_kv_all_keys()` / `ctx.get_kv_length()` / `ctx.clear_kv_value()` / `ctx.clear_all_kv_values()` / `ctx.prune_kv_values_updated_before()`, plus `client.get_kv_value()` / `client.wait_for_kv_value()`
 - **Event Queues** — `ctx.dequeue_event(queue_name)` for FIFO mailbox-style message passing, `client.enqueue_event()` to send messages
 - **Retry on Session** — `ctx.schedule_activity_with_retry_on_session()` for retry with session affinity
-- **Tag Routing** — worker tags for activity affinity (`MAX_WORKER_TAGS=5`, `MAX_TAG_NAME_BYTES=256`, `MAX_KV_KEYS=100`, `MAX_KV_VALUE_BYTES=16384`)
+- **Tag Routing** — worker tags for activity affinity (`MAX_WORKER_TAGS=5`, `MAX_TAG_NAME_BYTES=256`, `MAX_KV_KEYS=150`, `MAX_KV_VALUE_BYTES=65536`)
 - **Admin APIs** — instance management, metrics, pruning
 - **Activity client access** — `ctx.get_client()` lets activities start new orchestrations
 - **Runtime metrics** — `metrics_snapshot()` for orchestration/activity counters
@@ -136,6 +136,7 @@ client = Client(provider)
 
 # Metrics
 metrics = client.get_system_metrics()
+stats = client.get_orchestration_stats("instance-1")
 depths = client.get_queue_depths()
 
 # Instance management
@@ -153,7 +154,7 @@ for event in events:
 
 # Cleanup
 client.delete_instance("instance-1", force=True)
-client.prune_executions("instance-1", PyPruneOptions(keep_last=5))
+client.prune_executions("instance-1", PruneOptions(keep_last=5))
 ```
 
 ## Custom Status

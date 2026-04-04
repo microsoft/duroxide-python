@@ -10,18 +10,20 @@ from duroxide._duroxide import (
     PyPostgresProvider,
     PyClient,
     PyRuntime,
-    PyRuntimeOptions,
-    PyOrchestrationStatus,
-    PySystemMetrics,
-    PyQueueDepths,
-    PyInstanceInfo,
-    PyExecutionInfo,
-    PyInstanceTree,
-    PyDeleteInstanceResult,
-    PyPruneOptions,
-    PyPruneResult,
-    PyInstanceFilter,
-    PyEvent,
+    RuntimeOptions,
+    OrchestrationStatus,
+    SystemMetrics,
+    SystemStats,
+    QueueDepths,
+    InstanceInfo,
+    ExecutionInfo,
+    InstanceTree,
+    DeleteInstanceResult,
+    PruneOptions,
+    PruneResult,
+    InstanceFilter,
+    Event,
+    MetricsSnapshot,
     activity_trace_log,
     orchestration_trace_log,
     orchestration_set_custom_status,
@@ -33,6 +35,22 @@ from duroxide._duroxide import (
 )
 from duroxide.context import OrchestrationContext, ActivityContext, ScheduledTask
 from duroxide.driver import create_generator, next_step, dispose_generator
+
+# Backwards-compatibility aliases (deprecated, use clean names)
+PyOrchestrationStatus = OrchestrationStatus
+PySystemMetrics = SystemMetrics
+PySystemStats = SystemStats
+PyQueueDepths = QueueDepths
+PyInstanceInfo = InstanceInfo
+PyExecutionInfo = ExecutionInfo
+PyInstanceTree = InstanceTree
+PyDeleteInstanceResult = DeleteInstanceResult
+PyPruneOptions = PruneOptions
+PyPruneResult = PruneResult
+PyInstanceFilter = InstanceFilter
+PyEvent = Event
+PyMetricsSnapshot = MetricsSnapshot
+PyRuntimeOptions = RuntimeOptions
 
 import json
 
@@ -56,7 +74,7 @@ class OrchestrationResult:
 
 
 def _parse_status(raw):
-    """Convert a PyOrchestrationStatus to an OrchestrationResult with parsed output."""
+    """Convert an OrchestrationStatus to an OrchestrationResult with parsed output."""
     output = raw.output
     if output is not None:
         try:
@@ -259,6 +277,9 @@ class Client:
     def get_system_metrics(self):
         return self._native.get_system_metrics()
 
+    def get_orchestration_stats(self, instance_id: str):
+        return self._native.get_orchestration_stats(instance_id)
+
     def get_queue_depths(self):
         return self._native.get_queue_depths()
 
@@ -290,19 +311,19 @@ class Client:
 
     def delete_instance_bulk(self, filter=None):
         if filter is None:
-            filter = PyInstanceFilter()
+            filter = InstanceFilter()
         return self._native.delete_instance_bulk(filter)
 
     def prune_executions(self, instance_id: str, options=None):
         if options is None:
-            options = PyPruneOptions()
+            options = PruneOptions()
         return self._native.prune_executions(instance_id, options)
 
     def prune_executions_bulk(self, filter=None, options=None):
         if filter is None:
-            filter = PyInstanceFilter()
+            filter = InstanceFilter()
         if options is None:
-            options = PyPruneOptions()
+            options = PruneOptions()
         return self._native.prune_executions_bulk(filter, options)
 
 
@@ -450,19 +471,19 @@ class Runtime:
 # Tag limits
 MAX_WORKER_TAGS = 5
 MAX_TAG_NAME_BYTES = 256
-MAX_KV_KEYS = 100
-MAX_KV_VALUE_BYTES = 16384
+MAX_KV_KEYS = 150
+MAX_KV_VALUE_BYTES = 65536
 
 
 class TagFilter:
     """Helper for constructing worker tag filter values.
 
-    Usage with PyRuntimeOptions:
-        PyRuntimeOptions(worker_tag_filter=TagFilter.DEFAULT_ONLY)
-        PyRuntimeOptions(worker_tag_filter=TagFilter.tags(["gpu", "cpu"]))
-        PyRuntimeOptions(worker_tag_filter=TagFilter.default_and(["gpu"]))
-        PyRuntimeOptions(worker_tag_filter=TagFilter.ANY)
-        PyRuntimeOptions(worker_tag_filter=TagFilter.NONE)
+    Usage with RuntimeOptions:
+        RuntimeOptions(worker_tag_filter=TagFilter.DEFAULT_ONLY)
+        RuntimeOptions(worker_tag_filter=TagFilter.tags(["gpu", "cpu"]))
+        RuntimeOptions(worker_tag_filter=TagFilter.default_and(["gpu"]))
+        RuntimeOptions(worker_tag_filter=TagFilter.ANY)
+        RuntimeOptions(worker_tag_filter=TagFilter.NONE)
     """
 
     DEFAULT_ONLY = "default_only"
@@ -486,13 +507,35 @@ __all__ = [
     "Client",
     "Runtime",
     "OrchestrationResult",
-    "PyRuntimeOptions",
+    "RuntimeOptions",
     "OrchestrationContext",
     "ActivityContext",
     "ScheduledTask",
     "TagFilter",
+    "OrchestrationStatus",
+    "SystemMetrics",
+    "SystemStats",
+    "QueueDepths",
+    "InstanceInfo",
+    "ExecutionInfo",
+    "InstanceTree",
+    "DeleteInstanceResult",
+    "PruneOptions",
+    "PruneResult",
+    "InstanceFilter",
+    "Event",
+    "MetricsSnapshot",
+    "init_tracing",
+    "parse_result",
+    "MAX_WORKER_TAGS",
+    "MAX_TAG_NAME_BYTES",
+    "MAX_KV_KEYS",
+    "MAX_KV_VALUE_BYTES",
+    # Backwards-compatibility aliases
+    "PyRuntimeOptions",
     "PyOrchestrationStatus",
     "PySystemMetrics",
+    "PySystemStats",
     "PyQueueDepths",
     "PyInstanceInfo",
     "PyExecutionInfo",
@@ -502,10 +545,5 @@ __all__ = [
     "PyPruneResult",
     "PyInstanceFilter",
     "PyEvent",
-    "init_tracing",
-    "parse_result",
-    "MAX_WORKER_TAGS",
-    "MAX_TAG_NAME_BYTES",
-    "MAX_KV_KEYS",
-    "MAX_KV_VALUE_BYTES",
+    "PyMetricsSnapshot",
 ]

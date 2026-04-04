@@ -14,7 +14,7 @@ from duroxide import (
     PostgresProvider,
     Client,
     Runtime,
-    PyRuntimeOptions,
+    RuntimeOptions,
 )
 
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
@@ -37,7 +37,7 @@ def provider():
 
 def run_orchestration(provider, orch_name, input, setup_fn, timeout_ms=10_000, instance_name=None):
     client = Client(provider)
-    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
     setup_fn(runtime)
     runtime.start()
     try:
@@ -157,7 +157,7 @@ def test_retry_exhaustion_compensation(provider):
 
 def test_cancel_propagates_to_sub_orchestration(provider):
     client = Client(provider)
-    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
 
     @runtime.register_orchestration("LongChild")
     def long_child(ctx, input):
@@ -183,7 +183,7 @@ def test_cancel_propagates_to_sub_orchestration(provider):
 
 def test_cancel_completed_is_noop(provider):
     client = Client(provider)
-    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
 
     runtime.register_activity("Echo", lambda ctx, inp: inp)
 
@@ -292,7 +292,7 @@ def test_custom_status_multi_turn_lifecycle(provider):
 
 def test_custom_status_visible_from_client(provider):
     client = Client(provider)
-    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
 
     @runtime.register_orchestration("StatusVisible")
     def orch(ctx, input):
@@ -318,7 +318,7 @@ def test_custom_status_visible_from_client(provider):
 
 def test_event_queue_fifo_ordering(provider):
     client = Client(provider)
-    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
 
     @runtime.register_orchestration("QueueFIFO")
     def orch(ctx, input):
@@ -344,7 +344,7 @@ def test_event_queue_fifo_ordering(provider):
 
 def test_event_queue_multi_queue_isolation(provider):
     client = Client(provider)
-    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
 
     @runtime.register_orchestration("MultiQueue")
     def orch(ctx, input):
@@ -469,7 +469,7 @@ def test_nondeterminism_command_type_swap(provider):
     iid = uid("nondet-swap-1")
 
     # Phase 1: activity then wait_for_event
-    runtime1 = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime1 = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
     runtime1.register_activity("Work", lambda ctx, inp: "done")
 
     @runtime1.register_orchestration("NondetSwap")
@@ -484,7 +484,7 @@ def test_nondeterminism_command_type_swap(provider):
     runtime1.shutdown(100)
 
     # Phase 2: timer then wait_for_event (swapped command type)
-    runtime2 = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime2 = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
     runtime2.register_activity("Work", lambda ctx, inp: "done")
 
     @runtime2.register_orchestration("NondetSwap")
@@ -507,7 +507,7 @@ def test_nondeterminism_extra_activity(provider):
     iid = uid("nondet-extra-1")
 
     # Phase 1: one activity then wait
-    runtime1 = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime1 = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
     runtime1.register_activity("Work", lambda ctx, inp: "done")
     runtime1.register_activity("Extra", lambda ctx, inp: "extra")
 
@@ -523,7 +523,7 @@ def test_nondeterminism_extra_activity(provider):
     runtime1.shutdown(100)
 
     # Phase 2: two activities then wait (extra activity inserted)
-    runtime2 = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime2 = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
     runtime2.register_activity("Work", lambda ctx, inp: "done")
     runtime2.register_activity("Extra", lambda ctx, inp: "extra")
 

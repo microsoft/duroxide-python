@@ -16,7 +16,7 @@ from duroxide import (
     PostgresProvider,
     Client,
     Runtime,
-    PyRuntimeOptions,
+    RuntimeOptions,
 )
 
 # Load .env from project root
@@ -40,7 +40,7 @@ def provider():
 
 def run_orchestration(provider, name, input, setup_fn, timeout_ms=10_000):
     client = Client(provider)
-    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
     setup_fn(runtime)
     runtime.start()
     try:
@@ -76,7 +76,7 @@ class TestAllMixedTypes:
     def test_joins_activity_and_wait_event(self, provider):
         instance_id = uid("all-wait")
         client = Client(provider)
-        runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+        runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
 
         runtime.register_activity("Quick", lambda ctx, inp: f"quick-{inp}")
 
@@ -121,7 +121,7 @@ class TestAllMixedTypes:
     def test_joins_activity_and_dequeue_event(self, provider):
         instance_id = uid("all-deq")
         client = Client(provider)
-        runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+        runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
 
         runtime.register_activity("Quick", lambda ctx, inp: f"quick-{inp}")
 
@@ -179,7 +179,7 @@ class TestRaceMixedTypes:
         client = Client(provider)
         runtime = Runtime(
             provider,
-            PyRuntimeOptions(
+            RuntimeOptions(
                 dispatcher_poll_interval_ms=50,
                 worker_lock_timeout_ms=2000,
             ),
@@ -225,7 +225,7 @@ class TestRaceMixedTypes:
     def test_races_wait_event_vs_timer_event_wins(self, provider):
         instance_id = uid("race-wait")
         client = Client(provider)
-        runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+        runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
 
         @runtime.register_orchestration("RaceWaitTimer")
         def race_wait_timer(ctx, input):
@@ -266,7 +266,7 @@ class TestRaceMixedTypes:
         """Regression test for duroxide#59: race(timer, dequeue_event) double-serializes value."""
         instance_id = uid("race-deq")
         client = Client(provider)
-        runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+        runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
 
         @runtime.register_orchestration("RaceDequeue")
         def race_dequeue(ctx, input):

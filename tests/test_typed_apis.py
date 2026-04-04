@@ -12,7 +12,7 @@ from duroxide import (
     SqliteProvider,
     Client,
     Runtime,
-    PyRuntimeOptions,
+    RuntimeOptions,
 )
 
 RUN_ID = f"typed{int(time.time() * 1000):x}"
@@ -26,7 +26,7 @@ def make_env(poll_ms=50):
     """Create a fresh SQLite provider, client, and runtime."""
     provider = SqliteProvider.in_memory()
     client = Client(provider)
-    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=poll_ms))
+    runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=poll_ms))
     return provider, client, runtime
 
 

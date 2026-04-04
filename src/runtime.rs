@@ -17,7 +17,7 @@ pub(crate) static TOKIO_RT: std::sync::LazyLock<tokio::runtime::Runtime> =
     });
 
 /// Runtime options configurable from Python.
-#[pyclass(get_all)]
+#[pyclass(name = "RuntimeOptions", get_all)]
 #[derive(Debug, Clone)]
 pub struct PyRuntimeOptions {
     /// Orchestration concurrency (default: 4)

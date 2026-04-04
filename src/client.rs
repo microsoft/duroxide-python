@@ -11,7 +11,7 @@ use crate::runtime::TOKIO_RT;
 use crate::types::{
     PyDeleteInstanceResult, PyEvent, PyExecutionInfo, PyInstanceFilter, PyInstanceInfo,
     PyInstanceTree, PyOrchestrationStatus, PyPruneOptions, PyPruneResult, PyQueueDepths,
-    PySystemMetrics,
+    PySystemMetrics, PySystemStats,
 };
 
 /// Extract event-specific data as a JSON string from an EventKind.
@@ -335,6 +335,31 @@ impl PyClient {
                     failed_instances: metrics.failed_instances as i64,
                     total_events: metrics.total_events as i64,
                 })
+            })
+        })
+        .map_err(|e: String| pyo3::exceptions::PyRuntimeError::new_err(e))
+    }
+
+    /// Get per-orchestration runtime stats.
+    fn get_orchestration_stats(
+        &self,
+        py: Python<'_>,
+        instance_id: String,
+    ) -> PyResult<Option<PySystemStats>> {
+        let client = self.inner.clone();
+        py.allow_threads(|| {
+            TOKIO_RT.block_on(async {
+                let stats = client
+                    .get_orchestration_stats(&instance_id)
+                    .await
+                    .map_err(|e| format!("{e}"))?;
+                Ok(stats.map(|stats| PySystemStats {
+                    history_event_count: stats.history_event_count as i64,
+                    history_size_bytes: stats.history_size_bytes as i64,
+                    queue_pending_count: stats.queue_pending_count as i64,
+                    kv_user_key_count: stats.kv_user_key_count as i64,
+                    kv_total_value_bytes: stats.kv_total_value_bytes as i64,
+                }))
             })
         })
         .map_err(|e: String| pyo3::exceptions::PyRuntimeError::new_err(e))

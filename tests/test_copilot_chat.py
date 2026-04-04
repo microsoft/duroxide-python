@@ -16,7 +16,7 @@ import time
 import pytest
 from dotenv import load_dotenv
 
-from duroxide import PostgresProvider, Client, Runtime, PyRuntimeOptions
+from duroxide import PostgresProvider, Client, Runtime, RuntimeOptions
 
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
@@ -53,7 +53,7 @@ def wait_for_chat_state(client, instance_id, version_ref, expected_state, expect
 def test_copilot_chat_scenario(provider):
     """Multi-turn chat with event queues + custom status + continue-as-new."""
     client = Client(provider)
-    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
 
     @runtime.register_activity("GenerateResponse")
     def generate(ctx, user_msg):

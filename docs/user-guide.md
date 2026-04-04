@@ -268,12 +268,12 @@ def my_activity(ctx, input):
 
 ### Session Runtime Options
 
-Configure session behavior via `PyRuntimeOptions`:
+Configure session behavior via `RuntimeOptions`:
 
 ```python
-from duroxide import Runtime, PyRuntimeOptions
+from duroxide import Runtime, RuntimeOptions
 
-runtime = Runtime(provider, PyRuntimeOptions(
+runtime = Runtime(provider, RuntimeOptions(
     max_sessions_per_runtime=10,       # Max concurrent sessions (default: 10)
     session_idle_timeout_ms=300000,    # Idle timeout before releasing slot (default: 5 min)
     worker_node_id="pod-abc-123",      # Stable worker identity (e.g., K8s pod name)
@@ -289,11 +289,11 @@ runtime = Runtime(provider, PyRuntimeOptions(
 ### Complete Example
 
 ```python
-from duroxide import SqliteProvider, Client, Runtime, PyRuntimeOptions
+from duroxide import SqliteProvider, Client, Runtime, RuntimeOptions
 
 provider = SqliteProvider.in_memory()
 client = Client(provider)
-runtime = Runtime(provider, PyRuntimeOptions(
+runtime = Runtime(provider, RuntimeOptions(
     max_sessions_per_runtime=5,
     session_idle_timeout_ms=60000,
     worker_node_id="worker-1",
@@ -415,8 +415,8 @@ response = client.get_kv_value("server-1", "response:op-1")
 - `client.wait_for_kv_value_typed(instance_id, key, timeout_ms)` — wait for a key and JSON-decode it
 
 **Limits:**
-- `MAX_KV_KEYS = 100`
-- `MAX_KV_VALUE_BYTES = 16384`
+- `MAX_KV_KEYS = 150`
+- `MAX_KV_VALUE_BYTES = 65536`
 
 ## Event Queues — Persistent FIFO Message Passing
 
@@ -650,9 +650,9 @@ provider = PostgresProvider.connect_with_schema(
 ## Runtime Options
 
 ```python
-from duroxide import Runtime, PyRuntimeOptions
+from duroxide import Runtime, RuntimeOptions
 
-runtime = Runtime(provider, PyRuntimeOptions(
+runtime = Runtime(provider, RuntimeOptions(
     orchestration_concurrency=4,     # Max concurrent orchestration dispatches
     worker_concurrency=8,            # Max concurrent activity workers
     dispatcher_poll_interval_ms=100, # Polling interval in ms

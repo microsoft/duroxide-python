@@ -27,7 +27,7 @@ from duroxide import (
     PostgresProvider,
     Client,
     Runtime,
-    PyRuntimeOptions,
+    RuntimeOptions,
 )
 
 # Load .env from project root
@@ -66,7 +66,7 @@ def create_cms_state():
 def test_create_instance(provider):
     """Provisions a new PostgreSQL instance end-to-end."""
     client = Client(provider)
-    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
     cms = create_cms_state()
     ready_attempts = {"count": 0}
 
@@ -249,7 +249,7 @@ def test_create_instance(provider):
 def test_instance_actor(provider):
     """Runs health checks and exits on instance deleted state."""
     client = Client(provider)
-    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
     cms = create_cms_state()
     health_check_count = {"value": 0}
 
@@ -361,7 +361,7 @@ def test_instance_actor(provider):
 def test_delete_instance(provider):
     """Tears down instance and signals actor."""
     client = Client(provider)
-    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
     cms = create_cms_state()
 
     cms["instances"]["inst-delme"] = {
@@ -484,7 +484,7 @@ def test_delete_instance(provider):
 def test_create_image(provider):
     """Runs a backup job and polls to completion."""
     client = Client(provider)
-    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
     cms = create_cms_state()
     job_poll_count = {"value": 0}
 
@@ -634,7 +634,7 @@ def test_create_image(provider):
 def test_system_pruner(provider):
     """Runs periodic pruning with continue-as-new."""
     client = Client(provider)
-    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
     prune_count = {"value": 0}
 
     @runtime.register_activity("system-prune-2")
@@ -678,7 +678,7 @@ def test_system_pruner(provider):
 def test_full_lifecycle(provider):
     """Creates, monitors, then deletes an instance."""
     client = Client(provider)
-    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
     cms = create_cms_state()
     health_check_count = {"value": 0}
 

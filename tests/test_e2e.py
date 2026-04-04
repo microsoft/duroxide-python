@@ -19,9 +19,9 @@ from duroxide import (
     PostgresProvider,
     Client,
     Runtime,
-    PyRuntimeOptions,
-    PyPruneOptions,
-    PyInstanceFilter,
+    RuntimeOptions,
+    PruneOptions,
+    InstanceFilter,
 )
 
 # Load .env from project root
@@ -49,7 +49,7 @@ def provider():
 def run_orchestration(provider, name, input, setup_fn, timeout_ms=10_000):
     """Helper: register handlers, start runtime, run one orchestration, shutdown."""
     client = Client(provider)
-    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
 
     setup_fn(runtime)
     runtime.start()
@@ -220,7 +220,7 @@ def test_system_activities(provider):
 
 def test_status_polling(provider):
     client = Client(provider)
-    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
 
     @runtime.register_orchestration("StatusSample")
     def status_sample(ctx, input):
@@ -325,7 +325,7 @@ def test_sub_orchestration_chained(provider):
 
 def test_external_event(provider):
     client = Client(provider)
-    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
 
     @runtime.register_orchestration("WaitForApproval")
     def wait_for_approval(ctx, input):
@@ -371,7 +371,7 @@ def test_continue_as_new(provider):
 
 def test_cancellation(provider):
     client = Client(provider)
-    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
 
     @runtime.register_orchestration("LongRunning")
     def long_running(ctx, input):
@@ -499,7 +499,7 @@ def test_versioned_orchestration(provider):
             return f"v2:{result}"
 
     client = Client(provider)
-    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
     setup(runtime)
     runtime.start()
 
@@ -554,7 +554,7 @@ def test_stop_and_resume(provider):
     client = Client(provider)
 
     # Phase 1: start and immediately shutdown
-    rt1 = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    rt1 = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
 
     @rt1.register_activity("Tick")
     def tick(ctx, inp):
@@ -571,7 +571,7 @@ def test_stop_and_resume(provider):
     rt1.shutdown(50)
 
     # Phase 2: new runtime picks up the instance
-    rt2 = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    rt2 = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
 
     @rt2.register_activity("Tick")
     def tick2(ctx, inp):
@@ -598,7 +598,7 @@ def test_sqlite_smoketest():
     """Quick sanity check that SQLite provider still works."""
     sqlite_provider = SqliteProvider.in_memory()
     client = Client(sqlite_provider)
-    runtime = Runtime(sqlite_provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime = Runtime(sqlite_provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
 
     @runtime.register_activity("Echo")
     def echo(ctx, inp):
@@ -626,7 +626,7 @@ def test_sqlite_smoketest():
 def test_retry_exhaustion(provider):
     """Activity exhausts all retries — error is caught by orchestration."""
     client = Client(provider)
-    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
 
     def always_fails(ctx, input):
         raise Exception("permanent failure")
@@ -661,7 +661,7 @@ def test_retry_exhaustion(provider):
 def test_continue_as_new_version_upgrade(provider):
     """CAN from v1.0.0 picks up v1.0.1 on next execution."""
     client = Client(provider)
-    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
     runtime.register_activity("Echo", lambda ctx, inp: inp)
 
     @runtime.register_orchestration("UpgradingWorkflow")
@@ -692,7 +692,7 @@ def test_continue_as_new_version_upgrade(provider):
 def test_version_routing(provider):
     """Different versions run different logic."""
     client = Client(provider)
-    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
     runtime.register_activity("Work", lambda ctx, inp: f"done-{inp}")
 
     @runtime.register_orchestration("MultiVerWorkflow")
@@ -726,7 +726,7 @@ def test_version_routing(provider):
 def test_activity_get_client(provider):
     """Activity can use get_client to start a new orchestration."""
     client = Client(provider)
-    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
 
     def spawn_child(ctx, input):
         child_client = ctx.get_client()
@@ -762,7 +762,7 @@ def test_activity_get_client(provider):
 def test_custom_status_get_reflects_set_across_turns(provider):
     """ctx.get_custom_status() returns correct value, including across turn boundaries."""
     client = Client(provider)
-    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
 
     @runtime.register_activity("Echo")
     def echo(ctx, input):
@@ -802,7 +802,7 @@ def test_custom_status_get_reflects_set_across_turns(provider):
 def test_custom_status_persists_across_continue_as_new(provider):
     """Custom status persists across CAN boundaries and can be reset."""
     client = Client(provider)
-    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
 
     @runtime.register_activity("Echo")
     def echo(ctx, input):
@@ -865,7 +865,7 @@ def test_custom_status_persists_across_continue_as_new(provider):
 def test_metrics_snapshot(provider):
     """Runtime exposes metrics snapshot after processing."""
     client = Client(provider)
-    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
     runtime.register_activity("Echo", lambda ctx, inp: inp)
 
     @runtime.register_orchestration("MetricsTest")
@@ -892,7 +892,7 @@ def test_metrics_snapshot(provider):
 def test_detached_orchestration_scheduling(provider):
     """Coordinator fires-and-forgets two child orchestrations, then returns immediately."""
     client = Client(provider)
-    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
 
     runtime.register_activity("Echo", lambda ctx, inp: inp)
 
@@ -931,7 +931,7 @@ def test_detached_orchestration_scheduling(provider):
 def test_detached_then_activity(provider):
     """Parent fires-and-forgets child, then awaits activity. Tests replay correctness."""
     client = Client(provider)
-    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
 
     runtime.register_activity("EchoDT", lambda ctx, inp: inp)
 
@@ -966,14 +966,14 @@ def test_detached_then_activity(provider):
 def test_self_pruning_eternal_orchestration(provider):
     """Eternal orchestration processes 5 batches with CAN, pruning old executions each cycle."""
     client = Client(provider)
-    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
 
     runtime.register_activity("ProcessBatch", lambda ctx, inp: f"Processed batch {inp}")
 
     @runtime.register_activity("PruneSelf")
     def prune_self(ctx, input):
         c = ctx.get_client()
-        c.prune_executions(ctx.instance_id, PyPruneOptions(keep_last=1))
+        c.prune_executions(ctx.instance_id, PruneOptions(keep_last=1))
         return "pruned"
 
     @runtime.register_orchestration("EternalPruner")
@@ -1014,7 +1014,7 @@ def test_self_pruning_eternal_orchestration(provider):
 def test_config_hot_reload_persistent_events(provider):
     """Orchestration drains pending events between work cycles."""
     client = Client(provider)
-    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
 
     runtime.register_activity("ApplyConfig", lambda ctx, inp: f"applied:{inp}")
 
@@ -1230,3 +1230,41 @@ def test_init_tracing_invalid_path():
 
     with pytest.raises(RuntimeError, match="Failed to open log file"):
         init_tracing("/nonexistent-dir/sub/test.log")
+
+
+# ─── Orchestration stats ─────────────────────────────────────────
+
+
+def test_sample_orchestration_stats(provider):
+    """E2e sample: per-instance stats after orchestration with KV writes."""
+
+    def data_pipeline(ctx, _input):
+        result = yield ctx.schedule_activity("FetchData", json.dumps("https://api.example.com"))
+        ctx.set_kv_value("last_fetch", result)
+        ctx.set_kv_value("status", "complete")
+        return result
+
+    runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime.register_orchestration("DataPipeline", data_pipeline)
+    runtime.register_activity("FetchData", lambda _ctx, url: f"data from {url}")
+    runtime.start()
+
+    try:
+        client = Client(provider)
+
+        # Missing instance returns None
+        assert client.get_orchestration_stats(uid("missing-stats-e2e")) is None
+
+        instance_id = uid("stats-e2e")
+        client.start_orchestration(instance_id, "DataPipeline", "")
+        client.wait_for_orchestration(instance_id, 10_000)
+
+        stats = client.get_orchestration_stats(instance_id)
+        assert stats is not None
+        assert stats.history_event_count >= 4
+        assert stats.history_size_bytes > 0
+        assert stats.kv_user_key_count == 2
+        assert stats.kv_total_value_bytes > 0
+        assert stats.queue_pending_count == 0
+    finally:
+        runtime.shutdown(100)

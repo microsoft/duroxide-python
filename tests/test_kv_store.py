@@ -4,7 +4,7 @@ import time
 
 import pytest
 
-from duroxide import Client, PyRuntimeOptions, Runtime, SqliteProvider
+from duroxide import Client, RuntimeOptions, Runtime, SqliteProvider
 
 RUN_ID = f"kv{int(time.time() * 1000):x}"
 
@@ -20,7 +20,7 @@ def provider():
 
 def test_kv_request_response(provider):
     client = Client(provider)
-    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
 
     @runtime.register_activity("ProcessCommand")
     def process_command(_ctx, input):
@@ -82,7 +82,7 @@ def test_kv_request_response(provider):
 
 def test_kv_bulk_helpers(provider):
     client = Client(provider)
-    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
 
     @runtime.register_orchestration("KvBulkHelpers")
     def kv_bulk_helpers(ctx, _input):
@@ -121,7 +121,7 @@ def test_kv_bulk_helpers(provider):
 
 def test_kv_cross_orchestration_read(provider):
     client = Client(provider)
-    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
 
     @runtime.register_activity("ComputeResult")
     def compute_result(_ctx, input):
@@ -183,7 +183,7 @@ def test_kv_cross_orchestration_read(provider):
 
 def test_kv_read_modify_write_counter(provider):
     client = Client(provider)
-    runtime = Runtime(provider, PyRuntimeOptions(dispatcher_poll_interval_ms=50))
+    runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
 
     @runtime.register_activity("ProcessBatch")
     def process_batch(_ctx, input):
