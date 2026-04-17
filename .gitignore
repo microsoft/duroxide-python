@@ -35,3 +35,9 @@ venv/
 .DS_Store
 Thumbs.db
 .venv-clt-broken/
+
+# Build artifacts that should never be committed
+python/duroxide/*.dSYM/
+python/duroxide/*.dylib
+python/duroxide/*.so
+python/duroxide/*.pyd
