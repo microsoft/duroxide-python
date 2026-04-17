@@ -1,12 +1,16 @@
-name: Build & Publish
+name: Build, Smoke & Publish
 
 on:
+  pull_request:
+  push:
+    branches: [main]
   release:
     types: [published]
   workflow_dispatch:
 
 permissions:
   contents: read
+  issues: write  # smoke-registry opens an issue on failure
 
 jobs:
   # ── macOS (ARM64 + x86_64) ─────────────────────────────────
@@ -91,12 +95,58 @@ jobs:
           name: wheels-sdist
           path: dist/*.tar.gz
 
+  # ── Pre-publish smoke: install wheel into fresh venv on real OSes ──
+  smoke-local:
+    name: Smoke (local) ${{ matrix.os }} py${{ matrix.python }}
+    needs: [macos, linux, windows]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            shell: bash
+          - os: macos-14        # arm64
+            shell: bash
+          - os: macos-13        # x64
+            shell: bash
+          - os: windows-latest
+            shell: pwsh
+        python: ["3.12"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Download wheels
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wheels-*
+          merge-multiple: true
+          path: wheels
+      - name: List wheels
+        shell: bash
+        run: ls -lh wheels/
+      - name: Run smoke (local wheel)
+        if: matrix.shell == 'bash'
+        env:
+          WHEEL_DIR:    ${{ github.workspace }}/wheels
+          SMOKE_SCRIPT: ${{ github.workspace }}/ci/smoke/smoke.py
+        run: bash ci/smoke/run-local.sh
+      - name: Run smoke (local wheel, Windows)
+        if: matrix.shell == 'pwsh'
+        shell: pwsh
+        env:
+          WHEEL_DIR:    ${{ github.workspace }}/wheels
+          SMOKE_SCRIPT: ${{ github.workspace }}/ci/smoke/smoke.py
+        run: pwsh ci/smoke/run-local.ps1
+
   # ── Publish to PyPI ─────────────────────────────────────────
   publish:
     name: Publish to PyPI
     runs-on: ubuntu-latest
     if: github.event_name == 'release'
-    needs: [macos, linux, windows, sdist]
+    needs: [macos, linux, windows, sdist, smoke-local]
     environment:
       name: pypi
       url: https://pypi.org/p/duroxide
@@ -114,3 +164,74 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           skip-existing: true
+
+  # ── Post-publish smoke: install from real PyPI on real OSes ──
+  smoke-registry:
+    name: Smoke (registry) ${{ matrix.os }} py${{ matrix.python }}
+    if: github.event_name == 'release'
+    needs: [publish]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            shell: bash
+          - os: macos-14
+            shell: bash
+          - os: macos-13
+            shell: bash
+          - os: windows-latest
+            shell: pwsh
+        python: ["3.12"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Normalize version (strip leading v)
+        id: ver
+        shell: bash
+        run: |
+          V="${{ github.event.release.tag_name }}"
+          V="${V#v}"
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+      - name: Run smoke (registry install)
+        if: matrix.shell == 'bash'
+        env:
+          DUROXIDE_VERSION: ${{ steps.ver.outputs.version }}
+          SMOKE_SCRIPT:     ${{ github.workspace }}/ci/smoke/smoke.py
+        run: bash ci/smoke/run-registry.sh
+      - name: Run smoke (registry install, Windows)
+        if: matrix.shell == 'pwsh'
+        shell: pwsh
+        env:
+          DUROXIDE_VERSION: ${{ steps.ver.outputs.version }}
+          SMOKE_SCRIPT:     ${{ github.workspace }}/ci/smoke/smoke.py
+        run: pwsh ci/smoke/run-registry.ps1
+
+  smoke-registry-report:
+    name: Report registry smoke failure
+    if: github.event_name == 'release' && failure() && needs.smoke-registry.result == 'failure'
+    needs: [smoke-registry]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const tag = context.payload.release.tag_name;
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              title: `Post-publish smoke FAILED for ${tag}`,
+              body: [
+                `Post-publish (PyPI registry) smoke failed for release \`${tag}\`.`,
+                ``,
+                `Run: ${runUrl}`,
+                ``,
+                `Consumers installing \`duroxide==${tag.replace(/^v/,'')}\` from PyPI may be broken on one or more platforms.`,
+                `The release has NOT been auto-yanked. Action: investigate, patch, release a new version, and yank the bad one via PyPI UI if needed.`,
+              ].join('\n'),
+              labels: ['bug', 'release-smoke'],
+            });
