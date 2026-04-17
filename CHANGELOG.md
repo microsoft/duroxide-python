@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.20] - 2026-04-17
+
+### Added
+- Cross-platform packaging smoke tests in `ci/smoke/` that install the built wheel on
+  ubuntu, macos-14, macos-13, and windows-latest before publish, plus a post-publish
+  registry smoke. Publish is gated on all-platform smoke success.
+
+### Changed
+- Pinned `manylinux_2_28` with an explicit `python3.12` interpreter for the Linux wheel
+  build (upstream `manylinux: auto` regressed).
+
 ## [0.1.19] - 2026-04-06
 
 ### Changed
