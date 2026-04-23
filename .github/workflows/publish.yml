@@ -53,6 +53,14 @@ jobs:
           args: --release --out dist --interpreter python3.12
           manylinux: "2_28"
           before-script-linux: |
+            # Install OpenSSL dev headers for native-tls (replaces ring/rustls)
+            if command -v dnf > /dev/null; then
+              dnf install -y openssl-devel pkgconfig
+            elif command -v yum > /dev/null; then
+              yum install -y openssl-devel pkgconfig
+            elif command -v apt-get > /dev/null; then
+              apt-get update && apt-get install -y libssl-dev pkg-config
+            fi
             # maturin_2_28 images expose pythons at /opt/python/*/bin but not on PATH
             ln -sf /opt/python/cp312-cp312/bin/python3 /usr/local/bin/python3 || true
           sccache: "true"
