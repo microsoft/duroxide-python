@@ -30,6 +30,9 @@ Write durable workflows as Python generators. The Rust runtime handles replay, p
 pip install duroxide
 ```
 
+Prebuilt wheels are published for macOS arm64/x64, Linux manylinux x86_64 and
+aarch64, and Windows x86_64.
+
 ## Quick Start
 
 ```python

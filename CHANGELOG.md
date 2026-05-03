@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.24] - 2026-05-03
+
+### Added
+
+- **Linux ARM64 wheel** - Build and publish a manylinux `aarch64`
+  (`aarch64-unknown-linux-gnu`) wheel so `pip install duroxide` works in
+  Linux ARM64 containers without compiling from source.
+- **Linux ARM64 CI smoke** - Run local wheel and post-publish registry smoke
+  on `ubuntu-24.04-arm`.
+
 ## [0.1.22] - 2026-04-23
 
 ### Fixed

@@ -1,6 +1,6 @@
 [package]
 name = "duroxide-python"
-version = "0.1.22"
+version = "0.1.24"
 edition = "2021"
 
 [lib]
