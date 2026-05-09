@@ -5,7 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.24] - 2026-05-03
+## [0.1.25] - 2026-05-09
+
+### Added
+
+- **`PostgresEntraOptions`** — new Python class for tuning Microsoft Entra ID
+  (Azure AD) authentication: keyword-only optional fields `audience`,
+  `max_connections`, `acquire_timeout_ms`, and `refresh_interval_ms`.
+- **`PostgresProvider.connect_with_entra(host, port, database, user, options=None)`** —
+  connect to Azure Database for PostgreSQL Flexible Server via Entra token auth.
+  Tokens are fetched and refreshed automatically via the `DefaultAzureCredential`
+  chain (managed identity, environment variables, Azure CLI, etc.).
+- **`PostgresProvider.connect_with_schema_and_entra(host, port, database, user, schema, options=None)`** —
+  same as above with a custom schema for multi-tenant isolation.
+
+### Changed
+
+- **Bumped `duroxide` dependency** — `0.1.28` → `0.1.29`
+- **Bumped `duroxide-pg` dependency** — `0.1.30` → `0.1.32`
+
+
 
 ### Added
 

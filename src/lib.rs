@@ -191,6 +191,7 @@ fn _duroxide(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(init_tracing, m)?)?;
     m.add_class::<provider::PySqliteProvider>()?;
     m.add_class::<pg_provider::PyPostgresProvider>()?;
+    m.add_class::<pg_provider::PyPostgresEntraOptions>()?;
     m.add_class::<client::PyClient>()?;
     m.add_class::<runtime::PyRuntime>()?;
     m.add_class::<runtime::PyRuntimeOptions>()?;

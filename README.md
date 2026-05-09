@@ -14,7 +14,7 @@ Write durable workflows as Python generators. The Rust runtime handles replay, p
 - **Fan-out/Fan-in** — `ctx.all()` for parallel execution, `ctx.race()` for first-to-complete
 - **Continue-as-new** — long-running orchestrations with bounded history
 - **Deterministic replay** — safe resume after crashes
-- **SQLite & PostgreSQL** — pluggable storage providers
+- **SQLite & PostgreSQL** — pluggable storage providers, including Microsoft Entra ID auth for Azure Database for PostgreSQL
 - **Custom Status** — `ctx.set_custom_status()` / `ctx.reset_custom_status()` for orchestration progress reporting, `client.wait_for_status_change()` for efficient polling
 - **KV Store** — durable per-instance state via `ctx.set_kv_value()` / `ctx.get_kv_value()` / `ctx.get_kv_all_values()` / `ctx.get_kv_all_keys()` / `ctx.get_kv_length()` / `ctx.clear_kv_value()` / `ctx.clear_all_kv_values()` / `ctx.prune_kv_values_updated_before()`, plus `client.get_kv_value()` / `client.wait_for_kv_value()`
 - **Event Queues** — `ctx.dequeue_event(queue_name)` for FIFO mailbox-style message passing, `client.enqueue_event()` to send messages
@@ -122,7 +122,7 @@ def send_email(ctx, input):
 ## PostgreSQL Provider
 
 ```python
-from duroxide import PostgresProvider, Client, Runtime
+from duroxide import PostgresEntraOptions, PostgresProvider, Client, Runtime
 
 provider = PostgresProvider.connect("postgresql://user:pass@localhost:5432/mydb")
 # or with custom schema:
@@ -131,6 +131,31 @@ provider = PostgresProvider.connect_with_schema("postgresql://...", "duroxide_py
 runtime = Runtime(provider)
 client = Client(provider)
 ```
+
+### PostgreSQL with Microsoft Entra ID
+
+For Azure Database for PostgreSQL Flexible Server, use Entra ID token authentication instead of a password:
+
+```python
+provider = PostgresProvider.connect_with_entra(
+    host="my-server.postgres.database.azure.com",
+    port=5432,
+    database="appdb",
+    user="my-managed-identity",
+    options=PostgresEntraOptions(max_connections=10),
+)
+
+provider = PostgresProvider.connect_with_schema_and_entra(
+    host="my-server.postgres.database.azure.com",
+    port=5432,
+    database="appdb",
+    user="my-managed-identity",
+    schema="duroxide_python",
+    options=PostgresEntraOptions(refresh_interval_ms=1_200_000),
+)
+```
+
+`PostgresEntraOptions` also accepts `audience`, `acquire_timeout_ms`, and `refresh_interval_ms`.
 
 ## Admin APIs
 

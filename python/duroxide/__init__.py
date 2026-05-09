@@ -8,6 +8,7 @@ ScheduledTask descriptors. The Rust runtime handles DurableFutures.
 from duroxide._duroxide import (
     PySqliteProvider,
     PyPostgresProvider,
+    PyPostgresEntraOptions,
     PyClient,
     PyRuntime,
     RuntimeOptions,
@@ -133,6 +134,41 @@ class SqliteProvider:
         return SqliteProvider(PySqliteProvider.in_memory())
 
 
+class PostgresEntraOptions:
+    """Options for Entra ID (Azure AD) authentication with PostgreSQL.
+
+    All parameters are keyword-only and optional; omitting a parameter uses
+    the duroxide-pg default for that setting.
+
+    Parameters
+    ----------
+    audience:
+        Token audience/scope. Override for sovereign clouds (e.g., Azure US
+        Government: ``https://ossrdbms-aad.database.usgovcloudapi.net/.default``).
+    max_connections:
+        Maximum pool connection count.
+    acquire_timeout_ms:
+        Pool connection acquisition timeout in milliseconds.
+    refresh_interval_ms:
+        Upper bound on time between token refresh attempts, in milliseconds.
+    """
+
+    def __init__(
+        self,
+        *,
+        audience: "str | None" = None,
+        max_connections: "int | None" = None,
+        acquire_timeout_ms: "int | None" = None,
+        refresh_interval_ms: "int | None" = None,
+    ):
+        self._native = PyPostgresEntraOptions(
+            audience=audience,
+            max_connections=max_connections,
+            acquire_timeout_ms=acquire_timeout_ms,
+            refresh_interval_ms=refresh_interval_ms,
+        )
+
+
 class PostgresProvider:
     """PostgreSQL provider for duroxide."""
 
@@ -150,6 +186,60 @@ class PostgresProvider:
         """Connect to a PostgreSQL database with a custom schema."""
         return PostgresProvider(
             PyPostgresProvider.connect_with_schema(database_url, schema)
+        )
+
+    @staticmethod
+    def connect_with_entra(
+        host: str,
+        port: int,
+        database: str,
+        user: str,
+        options: "PostgresEntraOptions | None" = None,
+    ) -> "PostgresProvider":
+        """Connect to Azure Database for PostgreSQL using Entra ID (Azure AD) auth.
+
+        The SDK fetches and refreshes the access token automatically via the
+        DefaultAzureCredential chain (managed identity, environment variables,
+        Azure CLI, etc.).
+
+        Parameters
+        ----------
+        host:
+            PostgreSQL server hostname (e.g. ``myserver.postgres.database.azure.com``).
+        port:
+            PostgreSQL server port (usually 5432).
+        database:
+            Target database name.
+        user:
+            Entra principal name mapped to a PostgreSQL role on the server.
+        options:
+            Optional :class:`PostgresEntraOptions` for tuning. Pass ``None``
+            (or omit) to use defaults.
+        """
+        native_opts = options._native if options is not None else None
+        return PostgresProvider(
+            PyPostgresProvider.connect_with_entra(host, port, database, user, native_opts)
+        )
+
+    @staticmethod
+    def connect_with_schema_and_entra(
+        host: str,
+        port: int,
+        database: str,
+        user: str,
+        schema: str,
+        options: "PostgresEntraOptions | None" = None,
+    ) -> "PostgresProvider":
+        """Same as :meth:`connect_with_entra` but uses a custom schema.
+
+        The schema will be created if it does not exist. Useful for
+        multi-tenant deployments where each tenant has its own schema.
+        """
+        native_opts = options._native if options is not None else None
+        return PostgresProvider(
+            PyPostgresProvider.connect_with_schema_and_entra(
+                host, port, database, user, schema, native_opts
+            )
         )
 
 
@@ -504,6 +594,7 @@ class TagFilter:
 __all__ = [
     "SqliteProvider",
     "PostgresProvider",
+    "PostgresEntraOptions",
     "Client",
     "Runtime",
     "OrchestrationResult",
