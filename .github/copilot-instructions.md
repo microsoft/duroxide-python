@@ -29,7 +29,7 @@ Python (generators)  ←→  PyO3 bridge  ←→  duroxide (Rust core)
 
 - **Orchestrations**: Python generators that `yield` scheduling commands (dicts) to Rust
 - **Activities**: Regular Python functions called by Rust via `block_in_place` + `Python::with_gil()`
-- **Providers**: PostgreSQL (`duroxide-pg-opt`) or SQLite — configured at startup
+- **Providers**: PostgreSQL (`duroxide-pg`) or SQLite — configured at startup
 - **Tracing**: Delegates to Rust `tracing` — controlled by `RUST_LOG` env var
 
 ## Key Files
@@ -214,7 +214,7 @@ Orchestration code must be deterministic — same input + history = same sequenc
 
 ## Dependencies
 
-- **Rust**: duroxide (core), duroxide-pg-opt (PG provider), sqlx, tokio, pyo3, tracing
+- **Rust**: duroxide (core), duroxide-pg (PG provider), sqlx, tokio, pyo3, tracing
 - **Python**: maturin (build), pytest (test), python-dotenv (test config)
 - **Build**: `maturin develop` (not `cargo build`) — produces the `.so`/`.dylib` Python can import
-- **Cargo patch**: `[patch.crates-io] duroxide = { path = "../duroxide" }` forces local duroxide
+- **Cargo dependencies**: Release manifests must use crates.io versions for `duroxide` and `duroxide-pg`; remove temporary local `[patch.crates-io]` sections or inline `path =` overrides before release validation.

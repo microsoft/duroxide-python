@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.26] - 2026-05-25
+
+### Changed
+
+- **Bumped `duroxide-pg` dependency** — `0.1.32` → `0.1.34`
+- Updated PostgreSQL Rust bindings to construct providers through the new
+  `ProviderConfig::url(...)` / `ProviderConfig::entra(...)` plus
+  `PostgresProvider::new_with_config(config)` initialization API.
+- Kept `duroxide` dependency pinned at `0.1.29`.
+
 ## [0.1.25] - 2026-05-09
 
 ### Added

@@ -256,12 +256,10 @@ A single `static TOKIO_RT: LazyLock<tokio::runtime::Runtime>` is used for all as
 
 ## Crate Version Alignment
 
-duroxide-python depends on both `duroxide` (local path) and `duroxide-pg` (which depends on duroxide from crates.io). To avoid "two versions of crate `duroxide`" errors:
-
-```toml
-[patch.crates-io]
-duroxide = { path = "../duroxide" }
-```
+duroxide-python depends on `duroxide` and `duroxide-pg` from crates.io for
+release builds. Keep their versions aligned in `Cargo.toml` and avoid local
+`path` overrides or `[patch.crates-io]` entries when preparing a release, so CI
+and published wheels resolve the same registry crates.
 
 ## Limitations
 

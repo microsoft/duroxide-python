@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::runtime::TOKIO_RT;
+use duroxide_pg::{PostgresProvider, ProviderConfig};
 
 /// Python-visible options for Entra ID (Azure AD) authentication.
 ///
@@ -67,7 +68,7 @@ impl PyPostgresProvider {
     #[staticmethod]
     fn connect(database_url: String) -> PyResult<Self> {
         let provider = TOKIO_RT.block_on(async {
-            duroxide_pg::PostgresProvider::new(&database_url)
+            PostgresProvider::new_with_config(ProviderConfig::url(database_url))
                 .await
                 .map_err(|e| {
                     pyo3::exceptions::PyRuntimeError::new_err(format!(
@@ -85,7 +86,9 @@ impl PyPostgresProvider {
     #[staticmethod]
     fn connect_with_schema(database_url: String, schema: String) -> PyResult<Self> {
         let provider = TOKIO_RT.block_on(async {
-            duroxide_pg::PostgresProvider::new_with_schema(&database_url, Some(&schema))
+            let mut config = ProviderConfig::url(database_url);
+            config.schema_name = Some(schema);
+            PostgresProvider::new_with_config(config)
                 .await
                 .map_err(|e| {
                     pyo3::exceptions::PyRuntimeError::new_err(format!(
@@ -116,10 +119,8 @@ impl PyPostgresProvider {
         let entra_opts = options.unwrap_or_default().into_entra_auth_options();
         let provider = TOKIO_RT
             .block_on(async {
-                duroxide_pg::PostgresProvider::new_with_entra(
-                    &host, port, &database, &user, entra_opts,
-                )
-                .await
+                let config = ProviderConfig::entra(host, port, database, user, entra_opts);
+                PostgresProvider::new_with_config(config).await
             })
             .map_err(|e| {
                 pyo3::exceptions::PyRuntimeError::new_err(format!(
@@ -146,15 +147,9 @@ impl PyPostgresProvider {
         let entra_opts = options.unwrap_or_default().into_entra_auth_options();
         let provider = TOKIO_RT
             .block_on(async {
-                duroxide_pg::PostgresProvider::new_with_schema_and_entra(
-                    &host,
-                    port,
-                    &database,
-                    &user,
-                    Some(&schema),
-                    entra_opts,
-                )
-                .await
+                let mut config = ProviderConfig::entra(host, port, database, user, entra_opts);
+                config.schema_name = Some(schema);
+                PostgresProvider::new_with_config(config).await
             })
             .map_err(|e| {
                 pyo3::exceptions::PyRuntimeError::new_err(format!(
