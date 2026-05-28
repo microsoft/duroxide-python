@@ -4,6 +4,8 @@ Python SDK for the [Duroxide](https://github.com/microsoft/duroxide) durable exe
 
 Write durable workflows as Python generators. The Rust runtime handles replay, persistence, and fault tolerance.
 
+> **Preview:** This project is currently in preview.
+
 ## Features
 
 - **Generator-based orchestrations** — `yield` task descriptors, Rust handles DurableFutures
