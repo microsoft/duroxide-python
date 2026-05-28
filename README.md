@@ -290,6 +290,31 @@ Python-only changes (`python/duroxide/`, `tests/`) take effect immediately.
 
 See [CHANGELOG.md](https://github.com/microsoft/duroxide-python/blob/main/CHANGELOG.md) for release notes.
 
+## The Duroxide family
+
+Several related projects share Duroxide's durable-execution model. Pick the
+one that fits how you want to author and host your workflows:
+
+- **[pg_durable](https://github.com/microsoft/pg_durable)** — PostgreSQL
+  extension. Use this when you want durable pipelines and functions
+  **directly in PostgreSQL**, with no other moving parts.
+- **[duroxide](https://github.com/microsoft/duroxide)** — Rust
+  durable-execution runtime. Use this when you want to author workflows in
+  **Rust** and embed the runtime in your service. Multiple storage
+  providers are available (SQLite built-in, PostgreSQL via
+  [duroxide-pg](https://github.com/microsoft/duroxide-pg), or bring your
+  own).
+- **[duroxide-python](https://github.com/microsoft/duroxide-python)**
+  _(this repo)_ — Python SDK over the duroxide runtime. Use this when you
+  want to author workflows in **Python**.
+- **[duroxide-node](https://github.com/microsoft/duroxide-node)** —
+  Node.js / TypeScript SDK over the duroxide runtime. Use this when you
+  want to author workflows in **JavaScript / TypeScript**.
+- **[duroxide-pg](https://github.com/microsoft/duroxide-pg)** — PostgreSQL
+  provider for the duroxide runtime. Plug this into duroxide /
+  duroxide-python / duroxide-node when you want **PostgreSQL** as the
+  durable store.
+
 ## Documentation
 
 - [User Guide](https://github.com/microsoft/duroxide-python/blob/main/docs/user-guide.md) — orchestration patterns, activities, providers, tracing, determinism rules
