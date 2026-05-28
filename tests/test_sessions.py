@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 """
 End-to-end tests for activity session affinity in duroxide Python SDK.
 

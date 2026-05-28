@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 """
 End-to-end tests for duroxide Python SDK — PostgreSQL backend.
 Ported from duroxide-node/__tests__/e2e.test.js
