@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 """End-to-end KV store tests for the duroxide Python SDK."""
 
 import time

@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 """
 OrchestrationContext and ActivityContext for duroxide Python SDK.
 

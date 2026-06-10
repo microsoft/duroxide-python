@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 # Post-publish smoke: install `duroxide==<version>` from PyPI into a fresh
 # venv and run smoke.py.
 #

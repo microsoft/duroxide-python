@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 """
 Cross-platform packaging smoke test for the `duroxide` PyPI wheel.
 

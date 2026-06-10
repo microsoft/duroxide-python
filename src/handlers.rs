@@ -1,3 +1,6 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
 use parking_lot::Mutex;
 use pyo3::prelude::*;
 use std::collections::HashMap;

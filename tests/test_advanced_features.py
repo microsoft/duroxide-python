@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 """
 Advanced feature tests covering typed registration, retry, cancellation,
 timers, custom status, event queues, CAN, versioning, errors, and nondeterminism.

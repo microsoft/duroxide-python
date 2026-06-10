@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 """
 Tests for typed convenience API methods in duroxide Python SDK.
 

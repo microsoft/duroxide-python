@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
 # Pre-publish smoke: install the duroxide wheel for the current platform into
 # a fresh venv OUTSIDE the repo, then run smoke.py.
 #
