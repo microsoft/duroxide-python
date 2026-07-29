@@ -21,7 +21,7 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=7.0", "psycopg2-binary>=2.9"]
+dev = ["pytest>=7.0", "psycopg2-binary>=2.9", "python-dotenv>=1.0"]
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
