@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Wheels now install on Python 3.9 and later, not just 3.12.** The published
+  wheels were tagged `cp312` only, so every other interpreter fell back to the
+  sdist, which requires a Rust toolchain and OpenSSL headers and fails outright
+  on Python 3.14 (PyO3 0.23 supports at most 3.13). The extension is now built
+  against CPython's stable ABI (`pyo3/abi3-py39`), producing one `cp39-abi3`
+  wheel per platform that works on 3.9 through current and future releases.
+
+### Changed
+
+- **Packaging CI now smoke-tests Python 3.9, 3.12, 3.13, and 3.14** on every
+  supported OS, and fails the build if any produced wheel is not `abi3`-tagged.
+  The previous matrix tested only 3.12, so the version gap was invisible to CI.
+- Added the Python 3.14 classifier.
+
 ## [0.1.27] - 2026-07-29
 
 ### Changed

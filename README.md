@@ -33,6 +33,10 @@ pip install duroxide
 Prebuilt wheels are published for macOS arm64/x64, Linux manylinux x86_64 and
 aarch64, and Windows x86_64.
 
+Wheels are built against CPython's stable ABI (`abi3`, minimum 3.9), so a single
+wheel per platform works on Python 3.9 and every later version, including
+releases published after this SDK.
+
 ## Quick Start
 
 ```python
