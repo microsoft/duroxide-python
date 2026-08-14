@@ -100,7 +100,7 @@ impl Drop for OrchestrationInvokeGuard {
         };
 
         // Call dispose synchronously via GIL
-        if let Err(e) = Python::with_gil(|py| -> PyResult<()> {
+        if let Err(e) = Python::attach(|py| -> PyResult<()> {
             self.dispose_fn.call1(py, (gen_id.to_string(),))?;
             Ok(())
         }) {
@@ -240,7 +240,7 @@ impl PyActivityHandler {
 
         // Call the Python callable synchronously via GIL (activity functions are regular def)
         let result: String = tokio::task::block_in_place(|| {
-            Python::with_gil(|py| {
+            Python::attach(|py| {
                 let result = self
                     .callback
                     .call1(py, (payload,))
@@ -284,7 +284,7 @@ impl PyOrchestrationHandler {
     /// Call the Python create function synchronously using block_in_place + GIL.
     fn call_create_blocking(&self, payload: String) -> Result<GeneratorStepResult, String> {
         tokio::task::block_in_place(|| {
-            Python::with_gil(|py| {
+            Python::attach(|py| {
                 let result = self
                     .create_fn
                     .call1(py, (payload,))
@@ -312,7 +312,7 @@ impl PyOrchestrationHandler {
         .to_string();
 
         tokio::task::block_in_place(|| {
-            Python::with_gil(|py| {
+            Python::attach(|py| {
                 let result = self
                     .next_fn
                     .call1(py, (payload,))
@@ -886,7 +886,7 @@ impl duroxide::runtime::OrchestrationHandler for PyOrchestrationHandler {
             .insert(instance_id.clone(), ctx.clone());
         let mut guard = OrchestrationInvokeGuard::new(
             instance_id.clone(),
-            Python::with_gil(|py| self.dispose_fn.clone_ref(py)),
+            Python::attach(|py| self.dispose_fn.clone_ref(py)),
         );
 
         let ctx_info = serde_json::json!({

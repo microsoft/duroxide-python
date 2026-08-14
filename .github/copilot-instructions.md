@@ -28,7 +28,7 @@ Python (generators)  ←→  PyO3 bridge  ←→  duroxide (Rust core)
 ```
 
 - **Orchestrations**: Python generators that `yield` scheduling commands (dicts) to Rust
-- **Activities**: Regular Python functions called by Rust via `block_in_place` + `Python::with_gil()`
+- **Activities**: Regular Python functions called by Rust via `block_in_place` + `Python::attach()`
 - **Providers**: PostgreSQL (`duroxide-pg`) or SQLite — configured at startup
 - **Tracing**: Delegates to Rust `tracing` — controlled by `RUST_LOG` env var
 
@@ -42,7 +42,7 @@ Python (generators)  ←→  PyO3 bridge  ←→  duroxide (Rust core)
 | `types.rs` | `ScheduledTask` enum (Python→Rust protocol) |
 | `handlers.rs` | Core interop: orchestration loop, activity handler, execute_task, select/join |
 | `runtime.rs` | `PyRuntime` — global tokio runtime, start/shutdown |
-| `client.rs` | `PyClient` — all client methods with `py.allow_threads()` |
+| `client.rs` | `PyClient` — all client methods with `py.detach()` |
 | `provider.rs` | `PySqliteProvider` |
 | `pg_provider.rs` | `PyPostgresProvider` |
 
@@ -91,7 +91,7 @@ RUST_LOG=info pytest -s            # see orchestration/activity traces
 
 ```rust
 fn my_method(&self, py: Python<'_>, ...) -> PyResult<...> {
-    py.allow_threads(|| {
+    py.detach(|| {
         TOKIO_RT.block_on(async { ... })
             .map_err(|e| format!("{e}"))
     })
@@ -99,7 +99,7 @@ fn my_method(&self, py: Python<'_>, ...) -> PyResult<...> {
 }
 ```
 
-Without `py.allow_threads()`, Python holds the GIL while blocking on tokio. Orchestration handlers on tokio threads need the GIL → **deadlock**. See `pyo3-interop` skill for full details.
+Without `py.detach()`, Python holds the GIL while blocking on tokio. Orchestration handlers on tokio threads need the GIL → **deadlock**. See `pyo3-interop` skill for full details.
 
 ## Interop Model
 
@@ -113,7 +113,7 @@ Python generators yield scheduling commands as plain dicts. The Rust handler loo
 
 ### Activities: Synchronous Call
 
-Rust calls Python activity functions synchronously via `block_in_place` + `Python::with_gil()`. Activities are regular `def` functions (not generators, not async).
+Rust calls Python activity functions synchronously via `block_in_place` + `Python::attach()`. Activities are regular `def` functions (not generators, not async).
 
 ### Tracing: Global Context Maps
 
@@ -149,12 +149,12 @@ pub enum ScheduledTask {
 
 ## Key Patterns
 
-### Error Handling Across py.allow_threads
+### Error Handling Across py.detach
 
 `PyErr` is not `Send`. Map errors inside, convert outside:
 
 ```rust
-py.allow_threads(|| {
+py.detach(|| {
     TOKIO_RT.block_on(async { ... }).map_err(|e| format!("{e}"))
 })
 .map_err(PyRuntimeError::new_err)

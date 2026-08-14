@@ -124,7 +124,7 @@ impl PyClient {
         input: String,
     ) -> PyResult<()> {
         let client = self.inner.clone();
-        py.allow_threads(|| {
+        py.detach(|| {
             TOKIO_RT.block_on(async {
                 client
                     .start_orchestration(&instance_id, &orchestration_name, input)
@@ -145,7 +145,7 @@ impl PyClient {
         version: String,
     ) -> PyResult<()> {
         let client = self.inner.clone();
-        py.allow_threads(|| {
+        py.detach(|| {
             TOKIO_RT.block_on(async {
                 client
                     .start_orchestration_versioned(
@@ -164,7 +164,7 @@ impl PyClient {
     /// Get the current status of an orchestration instance.
     fn get_status(&self, py: Python<'_>, instance_id: String) -> PyResult<PyOrchestrationStatus> {
         let client = self.inner.clone();
-        py.allow_threads(|| {
+        py.detach(|| {
             TOKIO_RT.block_on(async {
                 let status = client
                     .get_orchestration_status(&instance_id)
@@ -185,7 +185,7 @@ impl PyClient {
     ) -> PyResult<PyOrchestrationStatus> {
         let client = self.inner.clone();
         let timeout = Duration::from_millis(timeout_ms as u64);
-        py.allow_threads(|| {
+        py.detach(|| {
             TOKIO_RT.block_on(async {
                 let status = client
                     .wait_for_orchestration(&instance_id, timeout)
@@ -206,7 +206,7 @@ impl PyClient {
         reason: Option<String>,
     ) -> PyResult<()> {
         let client = self.inner.clone();
-        py.allow_threads(|| {
+        py.detach(|| {
             TOKIO_RT.block_on(async {
                 client
                     .cancel_instance(&instance_id, reason.unwrap_or_default())
@@ -226,7 +226,7 @@ impl PyClient {
         data: String,
     ) -> PyResult<()> {
         let client = self.inner.clone();
-        py.allow_threads(|| {
+        py.detach(|| {
             TOKIO_RT.block_on(async {
                 client
                     .raise_event(&instance_id, &event_name, data)
@@ -246,7 +246,7 @@ impl PyClient {
         data: String,
     ) -> PyResult<()> {
         let client = self.inner.clone();
-        py.allow_threads(|| {
+        py.detach(|| {
             TOKIO_RT.block_on(async {
                 client
                     .enqueue_event(&instance_id, &queue_name, data)
@@ -269,7 +269,7 @@ impl PyClient {
         let client = self.inner.clone();
         let poll_interval = Duration::from_millis(poll_interval_ms);
         let timeout = Duration::from_millis(timeout_ms);
-        py.allow_threads(|| {
+        py.detach(|| {
             TOKIO_RT.block_on(async {
                 let status = client
                     .wait_for_status_change(&instance_id, last_seen_version, poll_interval, timeout)
@@ -289,7 +289,7 @@ impl PyClient {
         key: String,
     ) -> PyResult<Option<String>> {
         let client = self.inner.clone();
-        py.allow_threads(|| {
+        py.detach(|| {
             TOKIO_RT.block_on(async {
                 client
                     .get_kv_value(&instance_id, &key)
@@ -310,7 +310,7 @@ impl PyClient {
     ) -> PyResult<String> {
         let client = self.inner.clone();
         let timeout = Duration::from_millis(timeout_ms);
-        py.allow_threads(|| {
+        py.detach(|| {
             TOKIO_RT.block_on(async {
                 client
                     .wait_for_kv_value(&instance_id, &key, timeout)
@@ -324,7 +324,7 @@ impl PyClient {
     /// Get system metrics (if provider supports management).
     fn get_system_metrics(&self, py: Python<'_>) -> PyResult<PySystemMetrics> {
         let client = self.inner.clone();
-        py.allow_threads(|| {
+        py.detach(|| {
             TOKIO_RT.block_on(async {
                 let metrics = client
                     .get_system_metrics()
@@ -350,7 +350,7 @@ impl PyClient {
         instance_id: String,
     ) -> PyResult<Option<PySystemStats>> {
         let client = self.inner.clone();
-        py.allow_threads(|| {
+        py.detach(|| {
             TOKIO_RT.block_on(async {
                 let stats = client
                     .get_orchestration_stats(&instance_id)
@@ -371,7 +371,7 @@ impl PyClient {
     /// Get queue depths (if provider supports management).
     fn get_queue_depths(&self, py: Python<'_>) -> PyResult<PyQueueDepths> {
         let client = self.inner.clone();
-        py.allow_threads(|| {
+        py.detach(|| {
             TOKIO_RT.block_on(async {
                 let depths = client
                     .get_queue_depths()
@@ -390,7 +390,7 @@ impl PyClient {
     /// List all orchestration instance IDs.
     fn list_all_instances(&self, py: Python<'_>) -> PyResult<Vec<String>> {
         let client = self.inner.clone();
-        py.allow_threads(|| {
+        py.detach(|| {
             TOKIO_RT.block_on(async {
                 client
                     .list_all_instances()
@@ -404,7 +404,7 @@ impl PyClient {
     /// List orchestration instance IDs by status.
     fn list_instances_by_status(&self, py: Python<'_>, status: String) -> PyResult<Vec<String>> {
         let client = self.inner.clone();
-        py.allow_threads(|| {
+        py.detach(|| {
             TOKIO_RT.block_on(async {
                 client
                     .list_instances_by_status(&status)
@@ -418,7 +418,7 @@ impl PyClient {
     /// Get detailed info about a specific instance.
     fn get_instance_info(&self, py: Python<'_>, instance_id: String) -> PyResult<PyInstanceInfo> {
         let client = self.inner.clone();
-        py.allow_threads(|| {
+        py.detach(|| {
             TOKIO_RT.block_on(async {
                 let info = client
                     .get_instance_info(&instance_id)
@@ -448,7 +448,7 @@ impl PyClient {
         execution_id: i64,
     ) -> PyResult<PyExecutionInfo> {
         let client = self.inner.clone();
-        py.allow_threads(|| {
+        py.detach(|| {
             TOKIO_RT.block_on(async {
                 let info = client
                     .get_execution_info(&instance_id, execution_id as u64)
@@ -470,7 +470,7 @@ impl PyClient {
     /// List execution IDs for an instance.
     fn list_executions(&self, py: Python<'_>, instance_id: String) -> PyResult<Vec<i64>> {
         let client = self.inner.clone();
-        py.allow_threads(|| {
+        py.detach(|| {
             TOKIO_RT.block_on(async {
                 let ids = client
                     .list_executions(&instance_id)
@@ -490,7 +490,7 @@ impl PyClient {
         execution_id: i64,
     ) -> PyResult<Vec<PyEvent>> {
         let client = self.inner.clone();
-        py.allow_threads(|| {
+        py.detach(|| {
             TOKIO_RT.block_on(async {
                 let events = client
                     .read_execution_history(&instance_id, execution_id as u64)
@@ -522,7 +522,7 @@ impl PyClient {
     /// Get the full instance tree (root + all descendants).
     fn get_instance_tree(&self, py: Python<'_>, instance_id: String) -> PyResult<PyInstanceTree> {
         let client = self.inner.clone();
-        py.allow_threads(|| {
+        py.detach(|| {
             TOKIO_RT.block_on(async {
                 let tree = client
                     .get_instance_tree(&instance_id)
@@ -547,7 +547,7 @@ impl PyClient {
         force: bool,
     ) -> PyResult<PyDeleteInstanceResult> {
         let client = self.inner.clone();
-        py.allow_threads(|| {
+        py.detach(|| {
             TOKIO_RT.block_on(async {
                 let result = client
                     .delete_instance(&instance_id, force)
@@ -576,7 +576,7 @@ impl PyClient {
             completed_before: filter.completed_before.map(|v| v as u64),
             limit: filter.limit.map(|v| v as u32),
         };
-        py.allow_threads(|| {
+        py.detach(|| {
             TOKIO_RT.block_on(async {
                 let result = client
                     .delete_instance_bulk(rust_filter)
@@ -605,7 +605,7 @@ impl PyClient {
             keep_last: options.keep_last.map(|v| v as u32),
             completed_before: options.completed_before.map(|v| v as u64),
         };
-        py.allow_threads(|| {
+        py.detach(|| {
             TOKIO_RT.block_on(async {
                 let result = client
                     .prune_executions(&instance_id, rust_options)
@@ -638,7 +638,7 @@ impl PyClient {
             keep_last: options.keep_last.map(|v| v as u32),
             completed_before: options.completed_before.map(|v| v as u64),
         };
-        py.allow_threads(|| {
+        py.detach(|| {
             TOKIO_RT.block_on(async {
                 let result = client
                     .prune_executions_bulk(rust_filter, rust_options)

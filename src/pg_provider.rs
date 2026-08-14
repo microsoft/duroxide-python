@@ -11,7 +11,7 @@ use duroxide_pg::{PostgresProvider, ProviderConfig};
 /// Python-visible options for Entra ID (Azure AD) authentication.
 ///
 /// All fields are optional; omitting a field uses the duroxide-pg default.
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Default)]
 pub struct PyPostgresEntraOptions {
     pub audience: Option<String>,

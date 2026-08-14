@@ -138,7 +138,7 @@ pub enum GeneratorStepResult {
 }
 
 /// Orchestration status returned to Python.
-#[pyclass(name = "OrchestrationStatus", get_all, set_all)]
+#[pyclass(name = "OrchestrationStatus", get_all, set_all, skip_from_py_object)]
 #[derive(Debug, Clone)]
 pub struct PyOrchestrationStatus {
     pub status: String,
@@ -149,7 +149,7 @@ pub struct PyOrchestrationStatus {
 }
 
 /// System metrics returned to Python.
-#[pyclass(name = "SystemMetrics", get_all)]
+#[pyclass(name = "SystemMetrics", get_all, skip_from_py_object)]
 #[derive(Debug, Clone)]
 pub struct PySystemMetrics {
     pub total_instances: i64,
@@ -161,7 +161,7 @@ pub struct PySystemMetrics {
 }
 
 /// Per-orchestration runtime stats returned to Python.
-#[pyclass(name = "SystemStats", get_all)]
+#[pyclass(name = "SystemStats", get_all, skip_from_py_object)]
 #[derive(Debug, Clone)]
 pub struct PySystemStats {
     pub history_event_count: i64,
@@ -172,7 +172,7 @@ pub struct PySystemStats {
 }
 
 /// Queue depths returned to Python.
-#[pyclass(name = "QueueDepths", get_all)]
+#[pyclass(name = "QueueDepths", get_all, skip_from_py_object)]
 #[derive(Debug, Clone)]
 pub struct PyQueueDepths {
     pub orchestrator_queue: i64,
@@ -181,7 +181,7 @@ pub struct PyQueueDepths {
 }
 
 /// Instance info returned to Python.
-#[pyclass(name = "InstanceInfo", get_all, set_all)]
+#[pyclass(name = "InstanceInfo", get_all, set_all, skip_from_py_object)]
 #[derive(Debug, Clone)]
 pub struct PyInstanceInfo {
     pub instance_id: String,
@@ -196,7 +196,7 @@ pub struct PyInstanceInfo {
 }
 
 /// Execution info returned to Python.
-#[pyclass(name = "ExecutionInfo", get_all, set_all)]
+#[pyclass(name = "ExecutionInfo", get_all, set_all, skip_from_py_object)]
 #[derive(Debug, Clone)]
 pub struct PyExecutionInfo {
     pub execution_id: i64,
@@ -208,7 +208,7 @@ pub struct PyExecutionInfo {
 }
 
 /// Instance tree returned to Python.
-#[pyclass(name = "InstanceTree", get_all)]
+#[pyclass(name = "InstanceTree", get_all, skip_from_py_object)]
 #[derive(Debug, Clone)]
 pub struct PyInstanceTree {
     pub root_id: String,
@@ -217,7 +217,7 @@ pub struct PyInstanceTree {
 }
 
 /// Delete result returned to Python.
-#[pyclass(name = "DeleteInstanceResult", get_all)]
+#[pyclass(name = "DeleteInstanceResult", get_all, skip_from_py_object)]
 #[derive(Debug, Clone)]
 pub struct PyDeleteInstanceResult {
     pub instances_deleted: i64,
@@ -227,7 +227,7 @@ pub struct PyDeleteInstanceResult {
 }
 
 /// Prune options from Python.
-#[pyclass(name = "PruneOptions", get_all)]
+#[pyclass(name = "PruneOptions", get_all, skip_from_py_object)]
 #[derive(Debug, Clone)]
 pub struct PyPruneOptions {
     pub keep_last: Option<i64>,
@@ -247,7 +247,7 @@ impl PyPruneOptions {
 }
 
 /// Prune result returned to Python.
-#[pyclass(name = "PruneResult", get_all)]
+#[pyclass(name = "PruneResult", get_all, skip_from_py_object)]
 #[derive(Debug, Clone)]
 pub struct PyPruneResult {
     pub instances_processed: i64,
@@ -256,7 +256,7 @@ pub struct PyPruneResult {
 }
 
 /// Instance filter from Python.
-#[pyclass(name = "InstanceFilter", get_all)]
+#[pyclass(name = "InstanceFilter", get_all, skip_from_py_object)]
 #[derive(Debug, Clone)]
 pub struct PyInstanceFilter {
     pub instance_ids: Option<Vec<String>>,
@@ -282,7 +282,7 @@ impl PyInstanceFilter {
 }
 
 /// Runtime metrics snapshot returned to Python.
-#[pyclass(name = "MetricsSnapshot", get_all)]
+#[pyclass(name = "MetricsSnapshot", get_all, skip_from_py_object)]
 #[derive(Debug, Clone)]
 pub struct PyMetricsSnapshot {
     pub orch_starts: u64,
@@ -305,7 +305,7 @@ pub struct PyMetricsSnapshot {
 }
 
 /// A single history event returned to Python.
-#[pyclass(name = "Event", get_all)]
+#[pyclass(name = "Event", get_all, skip_from_py_object)]
 #[derive(Debug, Clone)]
 pub struct PyEvent {
     pub event_id: i64,

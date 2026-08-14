@@ -15,46 +15,68 @@ permissions:
 jobs:
   # ── macOS (ARM64 + x86_64) ─────────────────────────────────
   macos:
-    runs-on: macos-latest
+    runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
-        target: [aarch64-apple-darwin, x86_64-apple-darwin]
+        platform: [macos-arm64, macos-x64]
+        python: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
+        include:
+          - platform: macos-arm64
+            os: macos-14
+            architecture: arm64
+            target: aarch64-apple-darwin
+          - platform: macos-x64
+            os: macos-15-intel
+            architecture: x64
+            target: x86_64-apple-darwin
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python }}
+          architecture: ${{ matrix.architecture }}
       - name: Build wheel
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
-          args: --release --out dist
+          args: --release --out dist --interpreter python
           sccache: "true"
+      - name: Smoke wheel
+        env:
+          WHEEL_DIR: ${{ github.workspace }}/dist
+          SMOKE_SCRIPT: ${{ github.workspace }}/ci/smoke/smoke.py
+        run: bash ci/smoke/run-local.sh
       - uses: actions/upload-artifact@v4
         with:
-          name: wheels-macos-${{ matrix.target }}
+          name: wheels-${{ matrix.platform }}-py${{ matrix.python }}
           path: dist/*.whl
 
   # ── Linux (x86_64 + aarch64, manylinux) ───────────────────
   linux:
     strategy:
+      fail-fast: false
       matrix:
+        platform: [linux-x64, linux-arm64]
+        python: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
         include:
-          - os: ubuntu-latest
+          - platform: linux-x64
+            os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-          - os: ubuntu-24.04-arm
+          - platform: linux-arm64
+            os: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python }}
       - name: Build wheel
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
-          args: --release --out dist --interpreter python3.12
+          args: --release --out dist --interpreter python${{ matrix.python }}
           manylinux: "2_28"
           before-script-linux: |
             # Install OpenSSL dev headers for native-tls (replaces ring/rustls)
@@ -66,33 +88,47 @@ jobs:
               apt-get update && apt-get install -y libssl-dev pkg-config
             fi
             # maturin_2_28 images expose pythons at /opt/python/*/bin but not on PATH
-            ln -sf /opt/python/cp312-cp312/bin/python3 /usr/local/bin/python3 || true
+            pyver="${{ matrix.python }}"
+            pytag="cp${pyver//./}-cp${pyver//./}"
+            ln -sf "/opt/python/$pytag/bin/python3" "/usr/local/bin/python$pyver"
           sccache: "true"
+      - name: Smoke wheel
+        env:
+          WHEEL_DIR: ${{ github.workspace }}/dist
+          SMOKE_SCRIPT: ${{ github.workspace }}/ci/smoke/smoke.py
+        run: bash ci/smoke/run-local.sh
       - uses: actions/upload-artifact@v4
         with:
-          name: wheels-linux-${{ matrix.target }}
+          name: wheels-${{ matrix.platform }}-py${{ matrix.python }}
           path: dist/*.whl
 
   # ── Windows (x86_64) ─────────────────────────────────────────
   windows:
     runs-on: windows-latest
     strategy:
+      fail-fast: false
       matrix:
-        target: [x86_64-pc-windows-msvc]
+        python: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python }}
       - name: Build wheel
         uses: PyO3/maturin-action@v1
         with:
-          target: ${{ matrix.target }}
-          args: --release --out dist
+          target: x86_64-pc-windows-msvc
+          args: --release --out dist --interpreter python
           sccache: "true"
+      - name: Smoke wheel
+        shell: pwsh
+        env:
+          WHEEL_DIR: ${{ github.workspace }}\dist
+          SMOKE_SCRIPT: ${{ github.workspace }}\ci\smoke\smoke.py
+        run: pwsh ci/smoke/run-local.ps1
       - uses: actions/upload-artifact@v4
         with:
-          name: wheels-windows-${{ matrix.target }}
+          name: wheels-windows-x64-py${{ matrix.python }}
           path: dist/*.whl
 
   # ── Source distribution ─────────────────────────────────────
@@ -110,80 +146,53 @@ jobs:
           name: wheels-sdist
           path: dist/*.tar.gz
 
-  # ── Pre-publish smoke: install wheel into fresh venv on real OSes ──
-  smoke-local:
-    name: Smoke (local) ${{ matrix.os }} py${{ matrix.python }}
+  # ── Verify all native wheel assets exist before smoke testing ──
+  verify-wheels:
+    name: Verify native wheel set
     needs: [macos, linux, windows]
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            shell: bash
-          - os: ubuntu-24.04-arm
-            shell: bash
-          - os: macos-14        # arm64
-            shell: bash
-          - os: macos-13        # x64
-            shell: bash
-          - os: windows-latest
-            shell: pwsh
-        # abi3 wheels must install on every supported minor, not just the
-        # one CI happens to build with (see issue 6).
-        python: ["3.9", "3.12", "3.13", "3.14"]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python }}
-      - name: Download wheels
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           pattern: wheels-*
           merge-multiple: true
           path: wheels
-      - name: List wheels
-        shell: bash
-        run: ls -lh wheels/
-      - name: Assert wheels are abi3-tagged
+      - name: Require every native wheel target
         shell: bash
         run: |
-          # A cp3XX-cp3XX wheel silently restricts the SDK to a single Python
-          # minor (issue 6). Every built wheel must carry the stable-ABI tag.
           shopt -s nullglob
-          bad=()
-          for w in wheels/*.whl; do
-            case "$(basename "$w")" in
-              *-abi3-*) ;;
-              *) bad+=("$w") ;;
-            esac
-          done
-          if [ ${#bad[@]} -gt 0 ]; then
-            printf 'non-abi3 wheel: %s\n' "${bad[@]}"
+          wheels=(wheels/*.whl)
+          if [ ${#wheels[@]} -ne 30 ]; then
+            printf 'expected 30 wheels, found %d\n' "${#wheels[@]}"
+            printf '%s\n' "${wheels[@]}"
             exit 1
           fi
-          echo "all wheels abi3-tagged"
-      - name: Run smoke (local wheel)
-        if: matrix.shell == 'bash'
-        env:
-          WHEEL_DIR:    ${{ github.workspace }}/wheels
-          SMOKE_SCRIPT: ${{ github.workspace }}/ci/smoke/smoke.py
-        run: bash ci/smoke/run-local.sh
-      - name: Run smoke (local wheel, Windows)
-        if: matrix.shell == 'pwsh'
-        shell: pwsh
-        env:
-          WHEEL_DIR:    ${{ github.workspace }}/wheels
-          SMOKE_SCRIPT: ${{ github.workspace }}/ci/smoke/smoke.py
-        run: pwsh ci/smoke/run-local.ps1
+
+          require_one() {
+            local label="$1"
+            shift
+            local matches=("$@")
+            if [ ${#matches[@]} -ne 1 ]; then
+              printf 'expected one %s wheel, found %d\n' "$label" "${#matches[@]}"
+              printf '%s\n' "${matches[@]}"
+              exit 1
+            fi
+          }
+
+          for tag in cp39 cp310 cp311 cp312 cp313 cp314; do
+            require_one "$tag macOS arm64" wheels/*-"$tag"-"$tag"-macosx_*_arm64.whl
+            require_one "$tag macOS x64" wheels/*-"$tag"-"$tag"-macosx_*_x86_64.whl
+            require_one "$tag manylinux arm64" wheels/*-"$tag"-"$tag"-manylinux_2_28_aarch64.whl
+            require_one "$tag manylinux x64" wheels/*-"$tag"-"$tag"-manylinux_2_28_x86_64.whl
+            require_one "$tag Windows x64" wheels/*-"$tag"-"$tag"-win_amd64.whl
+          done
 
   # ── Publish to PyPI ─────────────────────────────────────────
   publish:
     name: Publish to PyPI
     runs-on: ubuntu-latest
     if: github.event_name == 'release'
-    needs: [macos, linux, windows, sdist, smoke-local]
+    needs: [sdist, verify-wheels]
     environment:
       name: pypi
       url: https://pypi.org/p/duroxide
@@ -204,26 +213,25 @@ jobs:
 
   # ── Post-publish smoke: install from real PyPI on real OSes ──
   smoke-registry:
-    name: Smoke (registry) ${{ matrix.os }} py${{ matrix.python }}
+    name: Smoke (registry) ${{ matrix.platform }} py${{ matrix.python }}
     if: github.event_name == 'release'
     needs: [publish]
     strategy:
       fail-fast: false
       matrix:
+        platform: [linux-x64, linux-arm64, macos-arm64, macos-x64, windows-x64]
+        python: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
         include:
-          - os: ubuntu-latest
-            shell: bash
-          - os: ubuntu-24.04-arm
-            shell: bash
-          - os: macos-14
-            shell: bash
-          - os: macos-13
-            shell: bash
-          - os: windows-latest
-            shell: pwsh
-        # abi3 wheels must install on every supported minor, not just the
-        # one CI happens to build with (see issue 6).
-        python: ["3.9", "3.12", "3.13", "3.14"]
+          - platform: linux-x64
+            os: ubuntu-latest
+          - platform: linux-arm64
+            os: ubuntu-24.04-arm
+          - platform: macos-arm64
+            os: macos-14
+          - platform: macos-x64
+            os: macos-15-intel
+          - platform: windows-x64
+            os: windows-latest
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -238,13 +246,13 @@ jobs:
           V="${V#v}"
           echo "version=$V" >> "$GITHUB_OUTPUT"
       - name: Run smoke (registry install)
-        if: matrix.shell == 'bash'
+        if: runner.os != 'Windows'
         env:
           DUROXIDE_VERSION: ${{ steps.ver.outputs.version }}
           SMOKE_SCRIPT:     ${{ github.workspace }}/ci/smoke/smoke.py
         run: bash ci/smoke/run-registry.sh
       - name: Run smoke (registry install, Windows)
-        if: matrix.shell == 'pwsh'
+        if: runner.os == 'Windows'
         shell: pwsh
         env:
           DUROXIDE_VERSION: ${{ steps.ver.outputs.version }}

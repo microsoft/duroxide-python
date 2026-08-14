@@ -84,7 +84,7 @@ The generator yields a plain descriptor dict (e.g., `{"type": "activity", "name"
 
 ### Why Activities Are Synchronous
 
-Unlike duroxide-node where activities are async JS functions called via ThreadsafeFunction, duroxide-python activities are regular synchronous functions called via `block_in_place` + `Python::with_gil()`. Activities run on tokio threads that acquire the GIL to call into Python.
+Unlike duroxide-node where activities are async JS functions called via ThreadsafeFunction, duroxide-python activities are regular synchronous functions called via `block_in_place` + `Python::attach()`. Activities run on tokio threads that acquire the GIL to call into Python.
 
 Users can use `asyncio.run()` internally if they need async I/O, or use synchronous libraries like `requests`.
 
@@ -94,7 +94,7 @@ This is the most critical difference between duroxide-python and duroxide-node.
 
 ### The Problem
 
-PyO3 holds the GIL when Python calls into Rust `#[pymethods]`. If that method calls `TOKIO_RT.block_on()`, it blocks the thread while holding the GIL. Meanwhile, orchestration handlers running on tokio threads need the GIL via `Python::with_gil()` — **deadlock**.
+PyO3 holds the GIL when Python calls into Rust `#[pymethods]`. If that method calls `TOKIO_RT.block_on()`, it blocks the thread while holding the GIL. Meanwhile, orchestration handlers running on tokio threads need the GIL via `Python::attach()` — **deadlock**.
 
 ```
 Thread A (Python → Rust):
@@ -104,16 +104,16 @@ Thread A (Python → Rust):
 
 Thread B (Tokio → Python):
   orchestration handler invoked
-    → block_in_place + Python::with_gil()  ← BLOCKS, waiting for GIL
+    → block_in_place + Python::attach()  ← BLOCKS, waiting for GIL
 ```
 
 ### The Fix
 
-EVERY method that calls `block_on` must use `py.allow_threads()` to release the GIL before blocking:
+EVERY method that calls `block_on` must use `py.detach()` to release the GIL before blocking:
 
 ```rust
 fn wait_for_orchestration(&self, py: Python<'_>, id: String, timeout: u64) -> PyResult<...> {
-    py.allow_threads(|| {
+    py.detach(|| {
         TOKIO_RT.block_on(async {
             self.client.wait_for_orchestration(&id, timeout).await
                 .map_err(|e| format!("{e}"))
@@ -127,7 +127,7 @@ This pattern is applied to ALL 20+ methods in `client.rs` and `runtime.rs`.
 
 ### Error Handling Across the Boundary
 
-`PyErr` is not `Send`, so you can't return `PyResult` from inside `allow_threads`. Pattern: map errors to `String` inside `allow_threads`, then `.map_err(PyRuntimeError::new_err)` outside.
+`PyErr` is not `Send`, so you can't return `PyResult` from inside `detach`. Pattern: map errors to `String` inside `detach`, then `.map_err(PyRuntimeError::new_err)` outside.
 
 ## Orchestration Handler Loop
 
@@ -141,7 +141,7 @@ The core of the interop is in `src/handlers.rs`. Here's the sequence for a singl
    ├─ Store ctx in ORCHESTRATION_CTXS map
    │
    ├─ call_create_blocking(payload) ──────────────────► create_generator(payload)
-   │   (block_in_place + with_gil)                       │
+  │   (block_in_place + attach)                         │
    │                                                     ├─ Create OrchestrationContext
    │                                                     ├─ Create generator: fn(ctx, input)
    │                                                     ├─ gen.send(None) → first yield
@@ -167,10 +167,10 @@ The core of the interop is in `src/handlers.rs`. Here's the sequence for a singl
 
 ### The block_in_place Fix
 
-The replay engine's `poll_once()` drops the handler future after a single poll. We use `tokio::task::block_in_place()` + `Python::with_gil()` to synchronously call Python generator functions from tokio threads. This works because:
+The replay engine's `poll_once()` drops the handler future after a single poll. We use `tokio::task::block_in_place()` + `Python::attach()` to synchronously call Python generator functions from tokio threads. This works because:
 - `block_in_place` tells tokio this thread is doing blocking work
-- `with_gil()` acquires the GIL only when needed
-- The GIL is released by `py.allow_threads()` in the client/runtime methods
+- `attach()` acquires the GIL only when needed
+- The GIL is released by `py.detach()` in the client/runtime methods
 
 ### Activity Handler
 
@@ -184,7 +184,7 @@ invoke(ctx, input)
   ├─ Store ctx in ACTIVITY_CTXS map (token-keyed)
   ├─ Serialize ctx + input as payload
   │
-  ├─ block_in_place + with_gil ─────────────────► wrapped_fn(payload)
+  ├─ block_in_place + attach ───────────────────► wrapped_fn(payload)
   │                                                │
   │                                                ├─ Parse ctx, create ActivityContext
   │                                                ├─ Call user's function
@@ -252,7 +252,7 @@ Internally, `PyRuntime` stores `Arc<dyn Provider>` so all provider operations ar
 
 ## Global Tokio Runtime
 
-A single `static TOKIO_RT: LazyLock<tokio::runtime::Runtime>` is used for all async operations. All `TOKIO_RT.block_on()` calls release the GIL first via `py.allow_threads()`. No pyo3-async-runtimes needed — this keeps the design simple.
+A single `static TOKIO_RT: LazyLock<tokio::runtime::Runtime>` is used for all async operations. All `TOKIO_RT.block_on()` calls release the GIL first via `py.detach()`. No pyo3-async-runtimes needed — this keeps the design simple.
 
 ## Crate Version Alignment
 
@@ -285,7 +285,7 @@ Orchestration functions must be regular generators (`def` with `yield`), not asy
 
 ### Activities Are Synchronous
 
-Activities are called via `block_in_place` + `with_gil()` on tokio threads. They are regular synchronous Python functions. For async I/O, use `asyncio.run()` inside the activity body.
+Activities are called via `block_in_place` + `attach()` on tokio threads. They are regular synchronous Python functions. For async I/O, use `asyncio.run()` inside the activity body.
 
 ### select/race Supports 2 Tasks
 
@@ -334,7 +334,7 @@ Python                              Rust (PyO3)                        Provider 
 ──────                              ───────────                        ─────────────
 client.wait_for_status_change(id, last_version, poll_ms, timeout_ms)
   │
-  └─► py.allow_threads(|| {
+  └─► py.detach(|| {
         TOKIO_RT.block_on(async {
           loop {
             status = provider.get_status(id)
@@ -369,13 +369,13 @@ ctx.set_kv_value("status", "ready")
 
 client.get_kv_value(id, "status")
   │
-  └─► py.allow_threads(|| TOKIO_RT.block_on(client.get_kv_value(id, "status")))
+  └─► py.detach(|| TOKIO_RT.block_on(client.get_kv_value(id, "status")))
         │
         └─► provider.get_kv_value(id, "status")
 
 client.wait_for_kv_value(id, "status", timeout_ms)
   │
-  └─► py.allow_threads(|| TOKIO_RT.block_on(client.wait_for_kv_value(...)))
+  └─► py.detach(|| TOKIO_RT.block_on(client.wait_for_kv_value(...)))
         │
         └─► repeated provider.get_kv_value(...) polling until key exists or timeout
 ```
@@ -393,7 +393,7 @@ Python                              Rust (PyO3)                        Provider 
 ──────                              ───────────                        ─────────────
 client.enqueue_event(id, "inbox", data)
   │
-  └─► py.allow_threads(|| {
+  └─► py.detach(|| {
         TOKIO_RT.block_on(async {
           client.enqueue_event(id, "inbox", data).await
         })

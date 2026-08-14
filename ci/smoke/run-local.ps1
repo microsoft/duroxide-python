@@ -20,7 +20,7 @@ try {
   & .\.venv\Scripts\Activate.ps1
 
   python -m pip install --upgrade pip | Out-Null
-  pip install --no-index --find-links "$env:WHEEL_DIR" duroxide
+  pip install --only-binary :all: --no-index --find-links "$env:WHEEL_DIR" duroxide
   if ($LASTEXITCODE -ne 0) { throw "pip install failed ($LASTEXITCODE)" }
 
   Copy-Item $env:SMOKE_SCRIPT ./smoke.py

@@ -173,7 +173,7 @@ fn init_tracing(
     Ok(())
 }
 
-#[pymodule]
+#[pymodule(gil_used = true)]
 fn _duroxide(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(activity_trace_log, m)?)?;
     m.add_function(wrap_pyfunction!(orchestration_trace_log, m)?)?;

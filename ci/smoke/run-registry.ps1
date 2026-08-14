@@ -21,7 +21,7 @@ try {
 
   $attempts = 6
   for ($i = 1; $i -le $attempts; $i++) {
-    pip install --pre "duroxide==$env:DUROXIDE_VERSION"
+    pip install --only-binary :all: --pre "duroxide==$env:DUROXIDE_VERSION"
     if ($LASTEXITCODE -eq 0) { break }
     if ($i -eq $attempts) { throw "pip install failed after $attempts attempts" }
     $sleep = $i * 10

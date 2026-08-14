@@ -20,7 +20,7 @@ pub(crate) static TOKIO_RT: std::sync::LazyLock<tokio::runtime::Runtime> =
     });
 
 /// Runtime options configurable from Python.
-#[pyclass(name = "RuntimeOptions", get_all)]
+#[pyclass(name = "RuntimeOptions", get_all, from_py_object)]
 #[derive(Debug, Clone)]
 pub struct PyRuntimeOptions {
     /// Orchestration concurrency (default: 4)
@@ -270,7 +270,7 @@ impl PyRuntime {
 
         // Release GIL before blocking — orchestration handlers need GIL access
         let provider = self.provider.clone();
-        let rt = py.allow_threads(|| {
+        let rt = py.detach(|| {
             TOKIO_RT.block_on(async {
                 runtime::Runtime::start_with_options(
                     provider,
@@ -314,7 +314,7 @@ impl PyRuntime {
     fn shutdown(&mut self, py: Python<'_>, timeout_ms: Option<i64>) -> PyResult<()> {
         if let Some(rt) = self.inner.take() {
             let timeout = timeout_ms.map(|ms| ms as u64);
-            py.allow_threads(|| {
+            py.detach(|| {
                 TOKIO_RT.block_on(async {
                     rt.shutdown(timeout).await;
                 });

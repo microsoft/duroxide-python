@@ -26,7 +26,7 @@ python -m pip install --upgrade pip >/dev/null
 attempts=6
 for i in $(seq 1 "$attempts"); do
   # --pre allows prereleases (0.1.20rc0); harmless for stable.
-  if pip install --pre "duroxide==$DUROXIDE_VERSION"; then
+  if pip install --only-binary :all: --pre "duroxide==$DUROXIDE_VERSION"; then
     break
   fi
   if [ "$i" -eq "$attempts" ]; then

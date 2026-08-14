@@ -1,6 +1,6 @@
 ---
 name: pyo3-interop
-description: Rust↔Python interop architecture in duroxide-python. Use when modifying the PyO3 bridge, adding ScheduledTask types, fixing GIL deadlocks, changing tracing delegation, or debugging block_in_place / with_gil behavior.
+description: Rust↔Python interop architecture in duroxide-python. Use when modifying the PyO3 bridge, adding ScheduledTask types, fixing GIL deadlocks, changing tracing delegation, or debugging block_in_place / attach behavior.
 ---
 
 # PyO3 Interop Architecture
@@ -17,7 +17,7 @@ duroxide-python bridges Rust's duroxide runtime to Python via PyO3/maturin. The 
 | `src/types.rs` | `ScheduledTask` enum — the protocol between Python and Rust |
 | `src/lib.rs` | PyO3 module entry point, `#[pyfunction]` trace functions |
 | `src/runtime.rs` | `PyRuntime` — wraps `duroxide::Runtime`, global tokio runtime |
-| `src/client.rs` | `PyClient` — wraps `duroxide::Client`, all methods with `py.allow_threads()` |
+| `src/client.rs` | `PyClient` — wraps `duroxide::Client`, all methods with `py.detach()` |
 | `src/provider.rs` | `PySqliteProvider` |
 | `src/pg_provider.rs` | `PyPostgresProvider` |
 | `python/duroxide/__init__.py` | Python wrapper: SqliteProvider, PostgresProvider, Client, Runtime, decorators |
@@ -30,7 +30,7 @@ This is the most important difference between duroxide-python and duroxide-node.
 
 ### The Problem
 
-PyO3 holds the GIL when Python calls into Rust `#[pymethods]`. If that method calls `TOKIO_RT.block_on()`, it blocks the thread while holding the GIL. Meanwhile, orchestration handlers running on tokio threads need the GIL via `Python::with_gil()` — **deadlock**.
+PyO3 holds the GIL when Python calls into Rust `#[pymethods]`. If that method calls `TOKIO_RT.block_on()`, it blocks the thread while holding the GIL. Meanwhile, orchestration handlers running on tokio threads need the GIL via `Python::attach()` — **deadlock**.
 
 ```
 Thread A (Python → Rust):
@@ -40,16 +40,16 @@ Thread A (Python → Rust):
 
 Thread B (Tokio → Python):
   orchestration handler invoked
-    → block_in_place + Python::with_gil()  ← BLOCKS, waiting for GIL
+    → block_in_place + Python::attach()  ← BLOCKS, waiting for GIL
 ```
 
 ### The Fix
 
-EVERY method that calls `block_on` must use `py.allow_threads()` to release the GIL before blocking:
+EVERY method that calls `block_on` must use `py.detach()` to release the GIL before blocking:
 
 ```rust
 fn wait_for_orchestration(&self, py: Python<'_>, id: String, timeout: u64) -> PyResult<...> {
-    py.allow_threads(|| {
+    py.detach(|| {
         TOKIO_RT.block_on(async {
             self.client.wait_for_orchestration(&id, timeout).await
                 .map_err(|e| format!("{e}"))
@@ -63,14 +63,14 @@ This pattern is applied to ALL 20+ methods in `client.rs` and `runtime.rs`.
 
 ### Error Handling Across the Boundary
 
-`PyErr` is not `Send`, so you can't return `PyResult` from inside `allow_threads`. Pattern:
-1. Inside `allow_threads`: map errors to `String` via `.map_err(|e| format!("{e}"))`
-2. Outside `allow_threads`: map `String` to `PyErr` via `.map_err(PyRuntimeError::new_err)`
+`PyErr` is not `Send`, so you can't return `PyResult` from inside `detach`. Pattern:
+1. Inside `detach`: map errors to `String` via `.map_err(|e| format!("{e}"))`
+2. Outside `detach`: map `String` to `PyErr` via `.map_err(PyRuntimeError::new_err)`
 
 ### Rules for ANY New Method
 
 1. **Add `py: Python<'_>` parameter** to the method signature
-2. **Wrap `TOKIO_RT.block_on()` in `py.allow_threads(|| { ... })`**
+2. **Wrap `TOKIO_RT.block_on()` in `py.detach(|| { ... })`**
 3. **Map errors to `String` inside, to `PyErr` outside**
 4. **Never hold the GIL while blocking on tokio**
 
@@ -78,12 +78,12 @@ This pattern is applied to ALL 20+ methods in `client.rs` and `runtime.rs`.
 
 The replay engine calls `poll_once()` on the handler future. If the future isn't ready in one poll, it's **dropped**.
 
-**Solution: `block_in_place` + `with_gil`**
+**Solution: `block_in_place` + `attach`**
 
 ```rust
 fn call_create_blocking(&self, payload: String) -> Result<GeneratorStepResult, String> {
     tokio::task::block_in_place(|| {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let result = self.create_fn.call1(py, (payload,))?;
             // parse result...
         })
@@ -99,7 +99,7 @@ Rust (tokio thread)                         Python (GIL)
 1. invoke(ctx, input)
    ├─ Store ctx in ORCHESTRATION_CTXS[instance_id]
    ├─ call_create_blocking(payload) ──────► create_generator(payload)
-   │   (block_in_place + with_gil)            ├─ Create OrchestrationContext
+    │   (block_in_place + attach)              ├─ Create OrchestrationContext
    │                                          ├─ Create generator: fn(ctx, input)
    │                                          ├─ gen.send(None) → first yield
    │                                          └─ Return {"status": "yielded", "task": ...}
@@ -107,7 +107,7 @@ Rust (tokio thread)                         Python (GIL)
    ├─ Loop:
    │   ├─ execute_task(ctx, task)           // Real DurableFuture or replay
    │   ├─ call_next_blocking(result) ──────► next_step(result)
-   │   │   (block_in_place + with_gil)        ├─ gen.send(value) or gen.throw(exc)
+    │   │   (block_in_place + attach)          ├─ gen.send(value) or gen.throw(exc)
    │   │                                      └─ Return next task or completion
    │   │◄────────────────────────────────────┘
    │   └─ If completed/error: break
@@ -116,7 +116,7 @@ Rust (tokio thread)                         Python (GIL)
 
 ## Activity Interop (Synchronous GIL Call)
 
-Activities in duroxide-python are **synchronous** functions (unlike duroxide-node's async activities). They run on tokio threads via `block_in_place` + `with_gil`:
+Activities in duroxide-python are **synchronous** functions (unlike duroxide-node's async activities). They run on tokio threads via `block_in_place` + `attach`:
 
 ```
 Rust                                        Python
@@ -124,7 +124,7 @@ Rust                                        Python
 invoke(ctx, input)
   ├─ Generate unique token (act-0, act-1, ...)
   ├─ Store ctx in ACTIVITY_CTXS[token]
-  ├─ block_in_place + with_gil ─────────────► wrapped_fn(payload)
+    ├─ block_in_place + attach ───────────────► wrapped_fn(payload)
   │                                            ├─ Parse ctx, create ActivityContext
   │                                            ├─ Call user's function (synchronous)
   │                                            └─ Return JSON result
@@ -209,7 +209,7 @@ static TOKIO_RT: LazyLock<tokio::runtime::Runtime> = LazyLock::new(|| {
 });
 ```
 
-All async operations go through `TOKIO_RT.block_on()` (with GIL released via `py.allow_threads()`). No pyo3-async-runtimes needed.
+All async operations go through `TOKIO_RT.block_on()` (with GIL released via `py.detach()`). No pyo3-async-runtimes needed.
 
 ## Provider Polymorphism
 
@@ -248,8 +248,8 @@ def _parse_status(raw):
 
 | Pitfall | What Happens | Fix |
 |---------|-------------|-----|
-| Missing `py.allow_threads()` around `block_on` | GIL deadlock — process hangs forever | Wrap ALL `TOKIO_RT.block_on()` calls |
-| Returning `PyErr` from inside `allow_threads` | Compile error — `PyErr` is not `Send` | Map to `String` inside, `PyErr` outside |
+| Missing `py.detach()` around `block_on` | GIL deadlock — process hangs forever | Wrap ALL `TOKIO_RT.block_on()` calls |
+| Returning `PyErr` from inside `detach` | Compile error — `PyErr` is not `Send` | Map to `String` inside, `PyErr` outside |
 | Thread-local for cross-thread context | Lookup returns `None` — traces silently fail | Use global `HashMap` |
 | Mutating PyO3 `#[pyclass]` fields from Python | `TypeError` or silently ignored | Use Python wrapper objects |
 | `cargo build` instead of `maturin develop` | Python imports stale `.so` — changes don't take effect | Always use `maturin develop` |

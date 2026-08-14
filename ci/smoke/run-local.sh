@@ -26,7 +26,7 @@ python -m pip install --upgrade pip >/dev/null
 
 # pip picks the matching wheel for the current interpreter/platform tags.
 # --no-index + --find-links ensures we install from LOCAL wheels only — no PyPI fallback.
-pip install --no-index --find-links "$WHEEL_DIR" duroxide
+pip install --only-binary :all: --no-index --find-links "$WHEEL_DIR" duroxide
 
 cp "$SMOKE_SCRIPT" ./smoke.py
 python ./smoke.py
