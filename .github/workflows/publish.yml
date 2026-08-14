@@ -128,7 +128,9 @@ jobs:
             shell: bash
           - os: windows-latest
             shell: pwsh
-        python: ["3.12"]
+        # abi3 wheels must install on every supported minor, not just the
+        # one CI happens to build with (see issue 6).
+        python: ["3.9", "3.12", "3.13", "3.14"]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -144,6 +146,24 @@ jobs:
       - name: List wheels
         shell: bash
         run: ls -lh wheels/
+      - name: Assert wheels are abi3-tagged
+        shell: bash
+        run: |
+          # A cp3XX-cp3XX wheel silently restricts the SDK to a single Python
+          # minor (issue 6). Every built wheel must carry the stable-ABI tag.
+          shopt -s nullglob
+          bad=()
+          for w in wheels/*.whl; do
+            case "$(basename "$w")" in
+              *-abi3-*) ;;
+              *) bad+=("$w") ;;
+            esac
+          done
+          if [ ${#bad[@]} -gt 0 ]; then
+            printf 'non-abi3 wheel: %s\n' "${bad[@]}"
+            exit 1
+          fi
+          echo "all wheels abi3-tagged"
       - name: Run smoke (local wheel)
         if: matrix.shell == 'bash'
         env:
@@ -201,7 +221,9 @@ jobs:
             shell: bash
           - os: windows-latest
             shell: pwsh
-        python: ["3.12"]
+        # abi3 wheels must install on every supported minor, not just the
+        # one CI happens to build with (see issue 6).
+        python: ["3.9", "3.12", "3.13", "3.14"]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
