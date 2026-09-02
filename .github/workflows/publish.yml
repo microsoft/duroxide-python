@@ -114,6 +114,8 @@ jobs:
   smoke-local:
     name: Smoke (local) ${{ matrix.os }} py${{ matrix.python }}
     needs: [macos, linux, windows]
+    env:
+      PIP_ONLY_BINARY: duroxide
     strategy:
       fail-fast: false
       matrix:
@@ -128,7 +130,7 @@ jobs:
             shell: bash
           - os: windows-latest
             shell: pwsh
-        python: ["3.12"]
+        python: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -143,7 +145,20 @@ jobs:
           path: wheels
       - name: List wheels
         shell: bash
-        run: ls -lh wheels/
+        run: |
+          ls -lh wheels/
+          shopt -s nullglob
+          wheels=(wheels/*.whl)
+          if (( ${#wheels[@]} == 0 )); then
+            echo "::error::No wheel artifacts found"
+            exit 1
+          fi
+          for wheel in "${wheels[@]}"; do
+            [[ "$wheel" == *-cp39-abi3-*.whl ]] || {
+              echo "::error file=$wheel::Expected a cp39-abi3 wheel"
+              exit 1
+            }
+          done
       - name: Run smoke (local wheel)
         if: matrix.shell == 'bash'
         env:
@@ -187,6 +202,8 @@ jobs:
     name: Smoke (registry) ${{ matrix.os }} py${{ matrix.python }}
     if: github.event_name == 'release'
     needs: [publish]
+    env:
+      PIP_ONLY_BINARY: duroxide
     strategy:
       fail-fast: false
       matrix:
@@ -201,7 +218,7 @@ jobs:
             shell: bash
           - os: windows-latest
             shell: pwsh
-        python: ["3.12"]
+        python: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
