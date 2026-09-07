@@ -289,7 +289,8 @@ Python-only changes (`python/duroxide/`, `tests/`) take effect immediately.
 ## Releases
 
 > **Releases are published by Microsoft's internal OSS infrastructure.** See
-> [RELEASE_POLICY.md](RELEASE_POLICY.md) for details.
+> [RELEASE_POLICY.md](https://github.com/microsoft/duroxide-python/blob/main/RELEASE_POLICY.md)
+> for details.
 
 ## Changelog
 
