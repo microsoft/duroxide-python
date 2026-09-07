@@ -47,11 +47,15 @@ on the user's behalf.
 
 After the pull request is merged:
 
-1. Fetch `origin/main` and verify the merged package and changelog versions.
-2. Ask the user for explicit approval to create and push the release tag. Prior
+1. Resolve the pull request's exact merge commit SHA from GitHub and confirm
+   the pull request state is `MERGED`.
+2. Fetch `origin/main`, confirm the merge SHA is contained in it, and verify the
+   package and changelog versions at that exact commit.
+3. Ask the user for explicit approval to create and push the release tag. Prior
    approval to prepare the release or create the pull request is not sufficient.
-3. Confirm the `v`-prefixed tag does not already exist locally or on `origin`.
-4. Create the tag on the merged `origin/main` commit and push it to `origin`.
+4. Confirm the `v`-prefixed tag does not already exist locally or on `origin`.
+5. Create the tag on the recorded merge SHA and push it to `origin`.
 
 For example, package version `0.1.29` uses tag `v0.1.29`. Treat release tags as
-immutable; never move or reuse an existing tag.
+immutable; never move or reuse an existing tag. Never substitute the current
+`origin/main` or `HEAD` tip for the release pull request's merge SHA.
