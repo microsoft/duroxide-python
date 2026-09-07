@@ -288,9 +288,8 @@ Python-only changes (`python/duroxide/`, `tests/`) take effect immediately.
 
 ## Releases
 
-Releases are published to PyPI through Microsoft's internal release pipelines.
-The GitHub Actions workflow in this repository only builds and smoke-tests the
-distribution artifacts.
+> **Releases are published by Microsoft's internal OSS infrastructure.** See
+> [RELEASE_POLICY.md](RELEASE_POLICY.md) for details.
 
 ## Changelog
 
