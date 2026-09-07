@@ -9,8 +9,8 @@ This skill prepares the repository changes for a release. Publishing is handled
 by Microsoft's internal release infrastructure as described in
 `RELEASE_POLICY.md`.
 
-Do not publish to PyPI, create a GitHub Release, create or push a Git tag, start
-the internal release pipeline, or request publishing credentials.
+Do not publish to PyPI, create a GitHub Release, start the internal release
+pipeline, or request publishing credentials.
 
 ## Prepare the Release
 
@@ -37,5 +37,21 @@ Before presenting the changes:
 - Confirm the changelog version and date are correct.
 - Confirm the diff contains only the intended release preparation.
 
-After the release pull request is opened, check that its `Build & Smoke`
-workflow passes before considering the preparation complete.
+## Create the Release Pull Request
+
+Commit the release preparation, push the branch, and create a pull request.
+Check that its `Build & Smoke` workflow passes. Do not merge the pull request
+on the user's behalf.
+
+## Tag the Merged Release
+
+After the pull request is merged:
+
+1. Fetch `origin/main` and verify the merged package and changelog versions.
+2. Ask the user for explicit approval to create and push the release tag. Prior
+   approval to prepare the release or create the pull request is not sufficient.
+3. Confirm the `v`-prefixed tag does not already exist locally or on `origin`.
+4. Create the tag on the merged `origin/main` commit and push it to `origin`.
+
+For example, package version `0.1.29` uses tag `v0.1.29`. Treat release tags as
+immutable; never move or reuse an existing tag.

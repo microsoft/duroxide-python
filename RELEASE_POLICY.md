@@ -13,8 +13,9 @@ Contributors can prepare a release through a pull request:
 3. Confirm the pull request's `Build & Smoke` workflow passes.
 4. Open a pull request for review.
 
-After the release change is merged, a Microsoft maintainer uses the internal
-release pipeline to build and publish the package to PyPI.
+After the release change is merged, the matching release tag is created from
+`main` with explicit approval. A Microsoft maintainer then uses that tag with
+the internal release pipeline to build and publish the package to PyPI.
 
 ## Publishing Boundary
 
