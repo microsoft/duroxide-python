@@ -286,6 +286,12 @@ maturin build --release
 After Rust source changes (`src/*.rs`), re-run `maturin develop` to rebuild.
 Python-only changes (`python/duroxide/`, `tests/`) take effect immediately.
 
+## Releases
+
+> **Releases are published by Microsoft's internal OSS infrastructure.** See
+> [RELEASE_POLICY.md](https://github.com/microsoft/duroxide-python/blob/main/RELEASE_POLICY.md)
+> for details.
+
 ## Changelog
 
 See [CHANGELOG.md](https://github.com/microsoft/duroxide-python/blob/main/CHANGELOG.md) for release notes.
