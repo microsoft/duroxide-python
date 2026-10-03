@@ -138,7 +138,7 @@ The core of the interop is in `src/handlers.rs`. Here's the sequence for a singl
                     ──────────────────                    ────────────────────
 1. invoke(ctx, input)
    │
-   ├─ Store ctx in ORCHESTRATION_CTXS map
+   ├─ Store ctx in ORCHESTRATION_CTXS map under a new token ("orch-{n}")
    │
    ├─ call_create_blocking(payload) ──────────────────► create_generator(payload)
    │   (block_in_place + with_gil)                       │
@@ -204,9 +204,9 @@ Both orchestration and activity tracing delegate to the Rust context objects, wh
 ```
 Python: ctx.trace_info("message")
   │
-  └─► orchestration_trace_log(instance_id, "info", "message")  [PyO3 function]
+  └─► orchestration_trace_log(ctx_token, "info", "message")  [PyO3 function]
         │
-        └─► ORCHESTRATION_CTXS.get(instance_id).trace("INFO", "message")
+        └─► ORCHESTRATION_CTXS.get(ctx_token).trace("INFO", "message")
               │
               ├─ if is_replaying → suppressed (no output)
               └─ if live → tracing::info!(target: "duroxide::orchestration", ...)
@@ -316,9 +316,9 @@ Python                              Rust (PyO3)                        Provider 
 ──────                              ───────────                        ─────────────
 ctx.set_custom_status("step 2")
   │
-  └─► orchestration_set_custom_status(instance_id, "step 2")
+  └─► orchestration_set_custom_status(ctx_token, "step 2")
         │
-        └─► ORCHESTRATION_CTXS.get(instance_id)
+        └─► ORCHESTRATION_CTXS.get(ctx_token)
               │
               └─► ctx.set_custom_status("step 2")
                     │
@@ -359,9 +359,9 @@ Python                              Rust (PyO3)                        Provider 
 ──────                              ───────────                        ─────────────
 ctx.set_kv_value("status", "ready")
   │
-  └─► orchestration_set_kv_value(instance_id, "status", "ready")
+  └─► orchestration_set_kv_value(ctx_token, "status", "ready")
         │
-        └─► ORCHESTRATION_CTXS.get(instance_id)
+        └─► ORCHESTRATION_CTXS.get(ctx_token)
               │
               └─► ctx.set_kv_value("status", "ready")
                     │

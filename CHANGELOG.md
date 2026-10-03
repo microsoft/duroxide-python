@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Replays of the same instance no longer share a native context.** The synchronous
+  context calls (`ctx.set_kv_value` / `ctx.get_kv_value` and the other KV calls,
+  `ctx.set_custom_status` / `ctx.get_custom_status`, and `ctx.trace_*`) found the Rust
+  `OrchestrationContext` by instance ID. Two replays of one instance can be alive in the
+  same process: a replay that lost its orchestration lock (for example after the process
+  stalled for longer than the lock timeout) keeps running until its commit is rejected,
+  and another dispatcher slot can fetch the instance again. Calls from one replay then
+  reached the other. The replay that held the lock could commit events it never
+  produced, and the next replay failed with `nondeterministic: kv set mismatch` or
+  `nondeterministic: schedule mismatch`. The context is now looked up by a token that is
+  new for every invocation, the same way activity contexts already work.
+
+### Changed
+
+- **Bumped `duroxide-pg` dependency** — `0.1.34` → `0.1.35`.
+
+### Added
+
+- **`orchestrator_lock_timeout_ms`, `orchestrator_lock_renewal_buffer_ms`, `max_attempts`
+  runtime options** — map to `orchestrator_lock_timeout`, `orchestrator_lock_renewal_buffer`
+  and `max_attempts` of the Rust runtime. Keyword arguments of `RuntimeOptions`, added after
+  the existing ones.
+- `tests/test_replay_isolation.py` — regression tests that stop the process in the middle
+  of a replay for longer than the orchestration lock timeout (POSIX only).
+
 ## [0.1.28] - 2026-09-03
 
 ### Changed
