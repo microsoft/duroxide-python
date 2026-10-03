@@ -106,6 +106,9 @@ def _freeze_this_process(seconds: int) -> int:
     the signals; this function spins until it sees the clock jump.
     """
     pid = os.getpid()
+    # Read the clock before the helper starts. The helper can stop this process
+    # before Popen returns, and the loop below must still see the gap.
+    start = last = time.monotonic()
     subprocess.Popen(
         ["sh", "-c", f"kill -STOP {pid}; sleep {seconds}; kill -CONT {pid}"],
         stdin=subprocess.DEVNULL,
@@ -113,7 +116,6 @@ def _freeze_this_process(seconds: int) -> int:
         stderr=subprocess.DEVNULL,
         start_new_session=True,
     )
-    start = last = time.monotonic()
     while True:
         now = time.monotonic()
         if now - last > 2.0:
