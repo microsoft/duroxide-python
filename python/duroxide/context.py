@@ -61,6 +61,11 @@ class OrchestrationContext:
         self.execution_id: int = ctx_info["executionId"]
         self.orchestration_name: str = ctx_info["orchestrationName"]
         self.orchestration_version: str = ctx_info["orchestrationVersion"]
+        # Handle of this replay's native context. Not part of the public API:
+        # it differs on every replay, so orchestration code must never read it.
+        # A context built by hand (for example in a unit test) has no native
+        # context; the empty token makes the native calls no-ops.
+        self._ctx_token: str = ctx_info.get("_ctxToken", "")
 
     # ─── Scheduling (yield these) ──────────────────────────
 
@@ -448,14 +453,14 @@ class OrchestrationContext:
         Persistent across turns: if you don't call it on a later turn,
         the provider keeps the previous value.
         """
-        orchestration_set_custom_status(self.instance_id, str(status))
+        orchestration_set_custom_status(self._ctx_token, str(status))
 
     def reset_custom_status(self):
         """Clear the custom status back to None.
 
         Fire-and-forget — no yield needed.
         """
-        orchestration_reset_custom_status(self.instance_id)
+        orchestration_reset_custom_status(self._ctx_token)
 
     def get_custom_status(self) -> Optional[str]:
         """Read the current custom status value.
@@ -464,39 +469,39 @@ class OrchestrationContext:
         Reflects all set/reset calls made so far, including across turns
         and continue-as-new boundaries.
         """
-        return orchestration_get_custom_status(self.instance_id)
+        return orchestration_get_custom_status(self._ctx_token)
 
     def set_kv_value(self, key: str, value: str):
         """Set a key-value pair scoped to this orchestration instance."""
-        orchestration_set_kv_value(self.instance_id, str(key), str(value))
+        orchestration_set_kv_value(self._ctx_token, str(key), str(value))
 
     def get_kv_value(self, key: str) -> Optional[str]:
         """Get the current value for a key. Returns None if not set."""
-        return orchestration_get_kv_value(self.instance_id, str(key))
+        return orchestration_get_kv_value(self._ctx_token, str(key))
 
     def get_kv_all_values(self) -> dict[str, str]:
         """Return a snapshot of all key-value pairs for this orchestration instance."""
-        return orchestration_get_kv_all_values(self.instance_id)
+        return orchestration_get_kv_all_values(self._ctx_token)
 
     def get_kv_all_keys(self) -> list[str]:
         """Return the list of KV keys currently set on this orchestration instance."""
-        return orchestration_get_kv_all_keys(self.instance_id)
+        return orchestration_get_kv_all_keys(self._ctx_token)
 
     def get_kv_length(self) -> int:
         """Return the number of KV entries currently set on this orchestration instance."""
-        return orchestration_get_kv_length(self.instance_id)
+        return orchestration_get_kv_length(self._ctx_token)
 
     def clear_kv_value(self, key: str):
         """Remove a single key from the KV store."""
-        orchestration_clear_kv_value(self.instance_id, str(key))
+        orchestration_clear_kv_value(self._ctx_token, str(key))
 
     def clear_all_kv_values(self):
         """Clear ALL key-value pairs for this orchestration instance."""
-        orchestration_clear_all_kv_values(self.instance_id)
+        orchestration_clear_all_kv_values(self._ctx_token)
 
     def prune_kv_values_updated_before(self, cutoff_ms: int) -> int:
         """Prune KV entries whose last persisted update is older than cutoff_ms."""
-        return orchestration_prune_kv_values(self.instance_id, cutoff_ms)
+        return orchestration_prune_kv_values(self._ctx_token, cutoff_ms)
 
     def get_kv_value_from_instance(self, instance_id: str, key: str) -> ScheduledTask:
         """Read a KV value from another orchestration instance via the built-in syscall activity."""
@@ -509,16 +514,16 @@ class OrchestrationContext:
     # ─── Logging (fire-and-forget, delegates to Rust ctx.trace()) ───
 
     def trace_info(self, message: str):
-        orchestration_trace_log(self.instance_id, "info", str(message))
+        orchestration_trace_log(self._ctx_token, "info", str(message))
 
     def trace_warn(self, message: str):
-        orchestration_trace_log(self.instance_id, "warn", str(message))
+        orchestration_trace_log(self._ctx_token, "warn", str(message))
 
     def trace_error(self, message: str):
-        orchestration_trace_log(self.instance_id, "error", str(message))
+        orchestration_trace_log(self._ctx_token, "error", str(message))
 
     def trace_debug(self, message: str):
-        orchestration_trace_log(self.instance_id, "debug", str(message))
+        orchestration_trace_log(self._ctx_token, "debug", str(message))
 
 
 class ActivityContext:

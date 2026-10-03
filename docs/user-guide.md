@@ -656,6 +656,10 @@ runtime = Runtime(provider, RuntimeOptions(
     orchestration_concurrency=4,     # Max concurrent orchestration dispatches
     worker_concurrency=8,            # Max concurrent activity workers
     dispatcher_poll_interval_ms=100, # Polling interval in ms
+    worker_lock_timeout_ms=30000,    # Activity lock timeout in ms
+    orchestrator_lock_timeout_ms=5000,         # Orchestration lock timeout in ms (see below)
+    orchestrator_lock_renewal_buffer_ms=2000,  # Renew this long before the lock runs out (timeouts >= 15s)
+    max_attempts=10,                 # Fetch attempts before a message is treated as poison
     log_level="info",                # Tracing log level
     log_format="pretty",             # "pretty" or "json"
     service_name="my-service",       # Service name for tracing metadata
@@ -665,6 +669,12 @@ runtime = Runtime(provider, RuntimeOptions(
     worker_node_id="pod-name",       # Stable worker identity for sessions
 ))
 ```
+
+`orchestrator_lock_timeout_ms` is how long a fetched orchestration item stays locked. The runtime
+renews the lock while a turn runs. If the process stalls for longer than the timeout (a frozen
+container, a slow provider call), the lock runs out: another dispatcher picks the instance up, and
+the commit of the stalled turn is rejected. Raise the timeout when the provider is slow or the host
+can stall; it must be longer than the slowest fetch of an orchestration item. Use whole seconds.
 
 ## Metrics
 

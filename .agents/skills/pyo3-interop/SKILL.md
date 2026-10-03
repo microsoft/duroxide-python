@@ -97,7 +97,7 @@ fn call_create_blocking(&self, payload: String) -> Result<GeneratorStepResult, S
 Rust (tokio thread)                         Python (GIL)
 ───────────────────                         ────────────────────
 1. invoke(ctx, input)
-   ├─ Store ctx in ORCHESTRATION_CTXS[instance_id]
+   ├─ Store ctx in ORCHESTRATION_CTXS[token]   // token = "orch-{n}", new for every invocation
    ├─ call_create_blocking(payload) ──────► create_generator(payload)
    │   (block_in_place + with_gil)            ├─ Create OrchestrationContext
    │                                          ├─ Create generator: fn(ctx, input)
@@ -111,7 +111,7 @@ Rust (tokio thread)                         Python (GIL)
    │   │                                      └─ Return next task or completion
    │   │◄────────────────────────────────────┘
    │   └─ If completed/error: break
-   └─ Remove ctx from ORCHESTRATION_CTXS
+   └─ Remove ctx from ORCHESTRATION_CTXS[token]
 ```
 
 ## Activity Interop (Synchronous GIL Call)
@@ -148,7 +148,7 @@ static ORCHESTRATION_CTXS: LazyLock<Mutex<HashMap<String, OrchestrationContext>>
 ```python
 # In OrchestrationContext (fire-and-forget, no yield)
 def trace_info(self, message):
-    orchestration_trace_log(self.instance_id, "info", str(message))
+    orchestration_trace_log(self._ctx_token, "info", str(message))
 
 # In ActivityContext (fire-and-forget)
 def trace_info(self, message):
@@ -160,7 +160,7 @@ def trace_info(self, message):
 1. **Never expose `is_replaying` to Python** — Rust `OrchestrationContext.trace()` handles suppression
 2. **Always use global maps, not thread-locals** — Python runs on a different thread
 3. **Clean up map entries on ALL exit paths** — leaked entries cause stale traces
-4. **Use atomic tokens for activities** (not instance_id) — multiple activities for the same instance can run concurrently
+4. **Use atomic tokens for activities and for orchestrations** (never instance_id) — multiple activities for the same instance can run concurrently, and two replays of one instance can be alive in the same process (a replay that lost its lock keeps running until its commit is rejected). Rust passes the orchestration token in `ctxInfo["_ctxToken"]`; `OrchestrationContext` sends it back on every synchronous native call
 
 ## ScheduledTask Protocol
 
