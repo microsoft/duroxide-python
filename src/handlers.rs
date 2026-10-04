@@ -565,22 +565,8 @@ impl PyOrchestrationHandler {
                 let f2 = make_select_future(ctx, t2);
 
                 match ctx.select2(f1, f2).await {
-                    duroxide::Either2::First(val) => {
-                        // Parse val as JSON so it's embedded as a structured value,
-                        // not double-serialized as a JSON string.
-                        let parsed = serde_json::from_str::<serde_json::Value>(&val)
-                            .unwrap_or(serde_json::Value::String(val));
-                        TaskResult::Ok(
-                            serde_json::json!({ "index": 0, "value": parsed }).to_string(),
-                        )
-                    }
-                    duroxide::Either2::Second(val) => {
-                        let parsed = serde_json::from_str::<serde_json::Value>(&val)
-                            .unwrap_or(serde_json::Value::String(val));
-                        TaskResult::Ok(
-                            serde_json::json!({ "index": 1, "value": parsed }).to_string(),
-                        )
-                    }
+                    duroxide::Either2::First(result) => select_result(0, result),
+                    duroxide::Either2::Second(result) => select_result(1, result),
                 }
             }
         }
@@ -592,21 +578,35 @@ enum TaskResult {
     Err(String),
 }
 
-/// Convert a ScheduledTask into a type-erased future returning a raw string for use in select.
+/// Turn the winner of a select into the value the orchestration gets.
+/// A winner that succeeded becomes `{ index, value }`. A winner that failed becomes
+/// the same error the orchestration gets when it yields that task on its own.
+fn select_result(index: u32, result: Result<String, String>) -> TaskResult {
+    match result {
+        Ok(val) => {
+            // Parse val as JSON so it's embedded as a structured value,
+            // not double-serialized as a JSON string.
+            let parsed = serde_json::from_str::<serde_json::Value>(&val)
+                .unwrap_or(serde_json::Value::String(val));
+            TaskResult::Ok(serde_json::json!({ "index": index, "value": parsed }).to_string())
+        }
+        Err(err) => TaskResult::Err(err),
+    }
+}
+
+/// Convert a ScheduledTask into a type-erased future for use in select.
+/// The output keeps success and failure apart, so a failed winner can be raised as an error.
 fn make_select_future(
     ctx: &OrchestrationContext,
     task: ScheduledTask,
-) -> std::pin::Pin<Box<dyn std::future::Future<Output = String> + Send + '_>> {
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<String, String>> + Send + '_>> {
     match task {
         ScheduledTask::Activity { name, input, tag } => Box::pin(async move {
             let future = ctx.schedule_activity(&name, input);
-            match if let Some(t) = tag {
+            if let Some(t) = tag {
                 future.with_tag(t).await
             } else {
                 future.await
-            } {
-                Ok(v) => v,
-                Err(e) => e,
             }
         }),
         ScheduledTask::ActivityWithSession {
@@ -616,13 +616,10 @@ fn make_select_future(
             tag,
         } => Box::pin(async move {
             let future = ctx.schedule_activity_on_session(&name, input, session_id);
-            match if let Some(t) = tag {
+            if let Some(t) = tag {
                 future.with_tag(t).await
             } else {
                 future.await
-            } {
-                Ok(v) => v,
-                Err(e) => e,
             }
         }),
         ScheduledTask::ActivityWithRetry {
@@ -631,58 +628,38 @@ fn make_select_future(
             retry,
             tag,
         } => Box::pin(async move {
+            let policy = convert_retry_policy(&retry);
             if let Some(t) = tag {
-                let policy = convert_retry_policy(&retry);
-                match retry_with_tag(ctx, &name, &input, &t, &policy).await {
-                    Ok(v) => v,
-                    Err(e) => e,
-                }
+                retry_with_tag(ctx, &name, &input, &t, &policy).await
             } else {
-                let policy = convert_retry_policy(&retry);
-                match ctx.schedule_activity_with_retry(&name, input, policy).await {
-                    Ok(v) => v,
-                    Err(e) => e,
-                }
+                ctx.schedule_activity_with_retry(&name, input, policy).await
             }
         }),
         ScheduledTask::Timer { delay_ms } => Box::pin(async move {
             ctx.schedule_timer(Duration::from_millis(delay_ms)).await;
-            "null".to_string()
+            Ok("null".to_string())
         }),
         ScheduledTask::WaitEvent { name } => {
-            Box::pin(async move { ctx.schedule_wait(&name).await })
+            Box::pin(async move { Ok(ctx.schedule_wait(&name).await) })
         }
-        ScheduledTask::SubOrchestration { name, input } => Box::pin(async move {
-            match ctx.schedule_sub_orchestration(&name, input).await {
-                Ok(v) => v,
-                Err(e) => e,
-            }
-        }),
+        ScheduledTask::SubOrchestration { name, input } => {
+            Box::pin(async move { ctx.schedule_sub_orchestration(&name, input).await })
+        }
         ScheduledTask::SubOrchestrationWithId {
             name,
             instance_id,
             input,
         } => Box::pin(async move {
-            match ctx
-                .schedule_sub_orchestration_with_id(&name, instance_id, input)
+            ctx.schedule_sub_orchestration_with_id(&name, instance_id, input)
                 .await
-            {
-                Ok(v) => v,
-                Err(e) => e,
-            }
         }),
         ScheduledTask::SubOrchestrationVersioned {
             name,
             version,
             input,
         } => Box::pin(async move {
-            match ctx
-                .schedule_sub_orchestration_versioned(&name, version, input)
+            ctx.schedule_sub_orchestration_versioned(&name, version, input)
                 .await
-            {
-                Ok(v) => v,
-                Err(e) => e,
-            }
         }),
         ScheduledTask::SubOrchestrationVersionedWithId {
             name,
@@ -690,16 +667,11 @@ fn make_select_future(
             instance_id,
             input,
         } => Box::pin(async move {
-            match ctx
-                .schedule_sub_orchestration_versioned_with_id(&name, version, instance_id, input)
+            ctx.schedule_sub_orchestration_versioned_with_id(&name, version, instance_id, input)
                 .await
-            {
-                Ok(v) => v,
-                Err(e) => e,
-            }
         }),
         ScheduledTask::DequeueEvent { queue_name } => {
-            Box::pin(async move { ctx.dequeue_event(&queue_name).await })
+            Box::pin(async move { Ok(ctx.dequeue_event(&queue_name).await) })
         }
         ScheduledTask::ActivityWithRetryOnSession {
             name,
@@ -708,25 +680,15 @@ fn make_select_future(
             session_id,
             tag,
         } => Box::pin(async move {
+            let policy = convert_retry_policy(&retry);
             if let Some(t) = tag {
-                let policy = convert_retry_policy(&retry);
-                match retry_on_session_with_tag(ctx, &name, &input, &session_id, &t, &policy).await
-                {
-                    Ok(v) => v,
-                    Err(e) => e,
-                }
+                retry_on_session_with_tag(ctx, &name, &input, &session_id, &t, &policy).await
             } else {
-                let policy = convert_retry_policy(&retry);
-                match ctx
-                    .schedule_activity_with_retry_on_session(&name, input, policy, &session_id)
+                ctx.schedule_activity_with_retry_on_session(&name, input, policy, &session_id)
                     .await
-                {
-                    Ok(v) => v,
-                    Err(e) => e,
-                }
             }
         }),
-        _ => Box::pin(async { "unsupported task in select".to_string() }),
+        _ => Box::pin(async { Err("unsupported task in select".to_string()) }),
     }
 }
 

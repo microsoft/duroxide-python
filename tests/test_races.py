@@ -301,6 +301,170 @@ class TestRaceMixedTypes:
             runtime.shutdown(100)
 
 
+# ─── ctx.race() when the winner failed ──────────────────────────
+#
+# A winner that failed makes the yield raise. The exception is the one the
+# orchestration gets when it yields that task on its own: same type, same message.
+
+
+class TestRaceFailedWinner:
+    def test_raises_the_error_of_a_failed_activity_and_continues(self, provider):
+        def setup(rt):
+            @rt.register_activity("Boom")
+            def boom(ctx, inp):
+                raise Exception(f"boom-{inp}")
+
+            rt.register_activity("Fast", lambda ctx, inp: f"fast-{inp}")
+
+            @rt.register_orchestration("RaceFailedActivity")
+            def race_failed_activity(ctx, input):
+                direct = None
+                try:
+                    yield ctx.schedule_activity("Boom", "x")
+                except Exception as e:
+                    direct = {"message": str(e), "type": type(e).__name__}
+                raced = None
+                try:
+                    winner = yield ctx.race(
+                        ctx.schedule_activity("Boom", "x"),
+                        ctx.schedule_timer(60000),
+                    )
+                    raced = {"returned": winner}
+                except Exception as e:
+                    raced = {"message": str(e), "type": type(e).__name__}
+                # The orchestration catches the error and schedules more work.
+                after = yield ctx.schedule_activity("Fast", "after")
+                return {"direct": direct, "raced": raced, "after": after}
+
+        result = run_orchestration(provider, "RaceFailedActivity", None, setup)
+        assert result.status == "Completed"
+        direct = result.output["direct"]
+        raced = result.output["raced"]
+        assert direct is not None, "the direct yield should raise"
+        assert "boom-x" in direct["message"]
+        assert "returned" not in raced, "the race should raise, not return"
+        assert raced["message"] == direct["message"]
+        assert raced["type"] == direct["type"]
+        assert result.output["after"] == "fast-after"
+
+    def test_raises_when_the_failed_winner_is_the_second_task(self, provider):
+        def setup(rt):
+            @rt.register_activity("Boom")
+            def boom(ctx, inp):
+                raise Exception("second-boom")
+
+            @rt.register_orchestration("RaceFailedSecond")
+            def race_failed_second(ctx, input):
+                try:
+                    return (yield ctx.race(
+                        ctx.schedule_timer(60000),
+                        ctx.schedule_activity("Boom", None),
+                    ))
+                except Exception as e:
+                    return {"caught": str(e)}
+
+        result = run_orchestration(provider, "RaceFailedSecond", None, setup)
+        assert result.status == "Completed"
+        assert "second-boom" in result.output["caught"]
+
+    def test_raises_the_error_of_a_failed_sub_orchestration(self, provider):
+        def setup(rt):
+            @rt.register_orchestration("RaceFailedChild")
+            def race_failed_child(ctx, input):
+                raise Exception("child-boom")
+                yield  # makes this a generator
+
+            @rt.register_orchestration("RaceFailedChildParent")
+            def race_failed_child_parent(ctx, input):
+                direct = None
+                try:
+                    yield ctx.schedule_sub_orchestration("RaceFailedChild", None)
+                except Exception as e:
+                    direct = str(e)
+                try:
+                    raced = {"returned": (yield ctx.race(
+                        ctx.schedule_sub_orchestration("RaceFailedChild", None),
+                        ctx.schedule_timer(60000),
+                    ))}
+                except Exception as e:
+                    raced = {"message": str(e)}
+                return {"direct": direct, "raced": raced}
+
+        result = run_orchestration(provider, "RaceFailedChildParent", None, setup)
+        assert result.status == "Completed"
+        assert "child-boom" in result.output["direct"]
+        assert "returned" not in result.output["raced"], "the race should raise, not return"
+        assert result.output["raced"]["message"] == result.output["direct"]
+
+    def test_uncaught_failed_winner_fails_the_orchestration(self, provider):
+        def setup(rt):
+            @rt.register_activity("Boom")
+            def boom(ctx, inp):
+                raise Exception("uncaught-boom")
+
+            @rt.register_orchestration("RaceFailedUncaught")
+            def race_failed_uncaught(ctx, input):
+                return (yield ctx.race(
+                    ctx.schedule_activity("Boom", None),
+                    ctx.schedule_timer(60000),
+                ))
+
+        result = run_orchestration(provider, "RaceFailedUncaught", None, setup)
+        assert result.status == "Failed"
+        assert "uncaught-boom" in result.error
+
+    def test_timer_that_wins_over_a_failing_activity_returns_as_before(self, provider):
+        def setup(rt):
+            @rt.register_activity("SlowBoom")
+            def slow_boom(ctx, inp):
+                for _ in range(40):
+                    if ctx.is_cancelled():
+                        break
+                    time.sleep(0.05)
+                raise Exception("too-late")
+
+            @rt.register_orchestration("RaceTimerBeatsBoom")
+            def race_timer_beats_boom(ctx, input):
+                return (yield ctx.race(
+                    ctx.schedule_timer(50),
+                    ctx.schedule_activity("SlowBoom", None),
+                ))
+
+        result = run_orchestration(provider, "RaceTimerBeatsBoom", None, setup)
+        assert result.status == "Completed"
+        assert result.output["index"] == 0
+        assert result.output["value"] is None
+
+    def test_race_typed_raises_the_same_error_and_still_parses_a_winner(self, provider):
+        def setup(rt):
+            @rt.register_activity("Boom")
+            def boom(ctx, inp):
+                raise Exception("typed-boom")
+
+            rt.register_activity("Obj", lambda ctx, inp: {"a": 1})
+
+            @rt.register_orchestration("RaceTypedFailed")
+            def race_typed_failed(ctx, input):
+                caught = None
+                try:
+                    yield ctx.race_typed(
+                        ctx.schedule_activity_typed("Boom", None),
+                        ctx.schedule_timer(60000),
+                    )
+                except Exception as e:
+                    caught = str(e)
+                winner = yield ctx.race_typed(
+                    ctx.schedule_activity_typed("Obj", None),
+                    ctx.schedule_timer(60000),
+                )
+                return {"caught": caught, "winner": winner}
+
+        result = run_orchestration(provider, "RaceTypedFailed", None, setup)
+        assert result.status == "Completed"
+        assert "typed-boom" in result.output["caught"]
+        assert result.output["winner"] == {"index": 0, "value": {"a": 1}}
+
+
 # ─── Type preservation through all() and race() ─────────────────
 
 

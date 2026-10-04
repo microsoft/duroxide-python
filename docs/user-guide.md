@@ -105,6 +105,23 @@ def race_example(ctx, input):
 
 `ctx.race()` supports exactly 2 tasks (maps to Rust `select2`). Nesting `ctx.all()` or `ctx.race()` inside each other is not supported.
 
+If the task that wins failed (an activity or a sub-orchestration that raised), the `yield` raises.
+The exception is the one you get when you yield that task on its own, so handle it the same way:
+
+```python
+try:
+    winner = yield ctx.race(
+        ctx.schedule_activity("FastService", input),
+        ctx.schedule_timer(5000),
+    )
+    # winner["index"] == 0: FastService succeeded; winner["index"] == 1: timed out
+except Exception as e:
+    # FastService failed before the timer fired
+    ctx.trace_error(f"FastService failed: {e}")
+```
+
+Before 0.2.0 a failed winner did not raise: `winner["value"]` held the error text.
+
 ### Durable Timers
 
 ```python
@@ -657,6 +674,7 @@ runtime = Runtime(provider, RuntimeOptions(
     worker_concurrency=8,            # Max concurrent activity workers
     dispatcher_poll_interval_ms=100, # Polling interval in ms
     worker_lock_timeout_ms=30000,    # Activity lock timeout in ms
+    worker_lock_renewal_buffer_ms=5000,        # Renew an activity lock this long before it runs out (timeouts >= 15s)
     orchestrator_lock_timeout_ms=5000,         # Orchestration lock timeout in ms (see below)
     orchestrator_lock_renewal_buffer_ms=2000,  # Renew this long before the lock runs out (timeouts >= 15s)
     max_attempts=10,                 # Fetch attempts before a message is treated as poison
@@ -666,6 +684,8 @@ runtime = Runtime(provider, RuntimeOptions(
     service_version="1.0.0",         # Service version for tracing metadata
     max_sessions_per_runtime=10,     # Max concurrent session slots
     session_idle_timeout_ms=300000,  # Session idle timeout (5 min default)
+    session_lock_timeout_ms=30000,   # How long a worker owns a session without renewing it
+    session_lock_renewal_buffer_ms=5000,       # Renew a session lock this long before it runs out (timeouts >= 15s)
     worker_node_id="pod-name",       # Stable worker identity for sessions
 ))
 ```
@@ -675,6 +695,13 @@ renews the lock while a turn runs. If the process stalls for longer than the tim
 container, a slow provider call), the lock runs out: another dispatcher picks the instance up, and
 the commit of the stalled turn is rejected. Raise the timeout when the provider is slow or the host
 can stall; it must be longer than the slowest fetch of an orchestration item. Use whole seconds.
+
+All three locks (orchestration, activity, session) are renewed the same way. With a lock timeout
+of 15 s or more, the runtime renews the lock `..._renewal_buffer_ms` before it runs out, so the
+renewal interval is the timeout minus the buffer. With a shorter timeout it renews at half the
+timeout and ignores the buffer. A stall longer than the time between a renewal and the end of the
+lock (the timeout minus the interval) loses the lock. `session_idle_timeout_ms` must be longer than
+the activity lock's renewal interval, or the runtime refuses to start.
 
 ## Metrics
 
