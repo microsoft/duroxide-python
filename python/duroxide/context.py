@@ -427,7 +427,11 @@ class OrchestrationContext:
         return {"type": "join", "tasks": tasks}
 
     def race(self, *tasks) -> dict:
-        """Select/race multiple tasks (wait for first). Yield the return value."""
+        """Select/race multiple tasks (wait for first). Yield the return value.
+
+        Returns {"index": N, "value": val} for the winner. If the winner failed,
+        the yield raises the same exception as yielding that task on its own.
+        """
         return {"type": "select", "tasks": list(tasks)}
 
     def all_typed(self, tasks: list) -> dict:
@@ -440,7 +444,9 @@ class OrchestrationContext:
     def race_typed(self, *tasks) -> dict:
         """Like race() but marks result for typed processing.
 
-        Returns {"index": N, "value": val} with value already parsed.
+        Returns {"index": N, "value": val} with value already parsed. If the
+        winner failed, the yield raises the same exception as yielding that task
+        on its own.
         """
         return {"type": "select", "tasks": list(tasks), "_typed_race": True}
 
