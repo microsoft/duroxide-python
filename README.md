@@ -253,6 +253,10 @@ reply = json.loads(status.custom_status)
 
 ## Development
 
+Install Rust through [rustup](https://rustup.rs/). The root `rust-toolchain.toml`
+selects the compiler for local builds and GitHub Actions, including wheel builds
+inside manylinux containers.
+
 ```bash
 # Create and activate a virtual environment
 python3 -m venv .venv
