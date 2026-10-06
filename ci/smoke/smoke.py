@@ -18,15 +18,26 @@ Semantics (MUST stay in sync with the Node smoke script):
 """
 
 import os
+import hashlib
+import json
 import platform
 import sys
 import tempfile
 import time
+from pathlib import Path
 
 from duroxide import SqliteProvider, Client, Runtime, RuntimeOptions
+from duroxide import _duroxide as native
 
 
 def main() -> int:
+    extension = Path(native.__file__).resolve()
+    assert extension.is_relative_to(Path(sys.prefix).resolve()), "smoke must load the installed wheel"
+    assert not hasattr(native, "_lifecycle_test_hooks")
+    assert not hasattr(native, "LifecycleTestHooks")
+    print("[smoke] native=" + json.dumps({
+        "path": str(extension), "sha256": hashlib.sha256(extension.read_bytes()).hexdigest(),
+    }))
     tmp = tempfile.mkdtemp(prefix="duroxide-smoke-")
     db_path = os.path.join(tmp, "smoke.db")
     print(
@@ -61,6 +72,16 @@ def main() -> int:
         print(f"[smoke] OK status={result.status} output={result.output}")
     finally:
         runtime.shutdown(200)
+
+    assert runtime.shutdown(0) is None
+    assert runtime.metrics_snapshot() is None
+    unstarted = Runtime(provider)
+    unstarted.shutdown(0)
+    try:
+        unstarted.start()
+        raise AssertionError("pre-start stop was not terminal")
+    except RuntimeError as error:
+        assert "lifecycle_terminal" in str(error)
 
     return 0
 

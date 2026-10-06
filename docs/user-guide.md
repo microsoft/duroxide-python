@@ -45,6 +45,58 @@ print(result.output)  # "Hello, World!"
 runtime.shutdown()
 ```
 
+## Runtime Lifecycle
+
+This section requires the **unreleased** adapter and matching core lifecycle;
+published packages and temporary local core overrides are not release evidence.
+
+Register handlers before the first `runtime.start()`. Startup returns after
+activation, not after shutdown, and failures raise `RuntimeError`.
+Registry/preparation failures, including invalid or descending versions, become
+ordinary `RuntimeError` values with `lifecycle_start_failed`, retained by subsequent
+shutdown calls. Version ordering and duplicate-registration policy are unchanged.
+Adapter error messages do not include panic payloads; this does not suppress
+Rust's separate process-wide panic-hook output.
+
+`runtime.shutdown()` uses one second of grace plus five seconds of cleanup
+headroom. `shutdown(0)` requests immediate force, still with a five-second total.
+The first stop fixes the deadlines; repeating it never grants a new budget.
+Success remains `None`. A typed timeout raises `TimeoutError`; operational failures
+raise `RuntimeError`. Non-integer, negative, overflowing, or unsupported native
+durations reject without consuming registrations or accepting stop.
+Unsupported/negative durations raise `ValueError`, non-integer extraction raises
+`TypeError`, and values outside signed 64-bit extraction raise `OverflowError`.
+The interval ceiling for grace is `((2**64 - 1) // 1_000_000) - 5000` milliseconds,
+also subject to the platform's monotonic clock range. Validation still applies
+before a no-work or repeated stop; `None` selects the omitted grace.
+
+Stopping before start is terminal. Do not overlap lifecycle or registration calls
+on the same instance, including across threads while the GIL is released. Metrics
+return `None` after stop. Repeated shutdown can observe real late completion, but a
+timeout permanently rules out reuse and still requires application/supervisor
+process termination. Cleanup remains owned; the SDK never exits the process itself.
+This contract covers core-owned execution, not arbitrary unregistered Python work
+or the .NET adapter's additional foreign-continuation barrier. Independent
+provider-owned background work has a separate lifetime.
+
+This complete example has no admitted work and can finish before grace:
+
+```python
+from duroxide import Runtime, SqliteProvider
+
+provider = SqliteProvider.in_memory()
+runtime = Runtime(provider)
+runtime.start()
+runtime.shutdown()         # 1000 ms grace, 6000 ms total; can finish early
+runtime.shutdown(0)        # Observes the same actual completion, not a new stop
+print(runtime.metrics_snapshot())  # None: stopped worker, not active metrics
+```
+
+A finite grace cannot promise bounded forced cleanup. Do not swallow
+`TimeoutError` and continue using the worker, free foreign callback state, or
+assume caught `RuntimeError` proves quiescence. Surface failure to the application
+or supervisor responsible for terminating the process.
+
 ## Orchestration Patterns
 
 ### Sequential Steps
