@@ -24,8 +24,8 @@ fn activity_trace_log(token: String, level: String, message: String) {
 /// Delegates to OrchestrationContext.trace() which checks is_replaying
 /// and includes all structured fields (instance_id, orchestration_name, etc.)
 #[pyfunction]
-fn orchestration_trace_log(instance_id: String, level: String, message: String) {
-    handlers::orchestration_trace(&instance_id, &level, &message);
+fn orchestration_trace_log(token: String, level: String, message: String) {
+    handlers::orchestration_trace(&token, &level, &message);
 }
 
 /// Check if an activity's cancellation token has been triggered.
@@ -44,71 +44,69 @@ fn activity_tag(token: String) -> Option<String> {
 
 /// Set custom status on an orchestration (fire-and-forget, no yield needed).
 #[pyfunction]
-fn orchestration_set_custom_status(instance_id: String, status: String) {
-    handlers::orchestration_set_custom_status(&instance_id, &status);
+fn orchestration_set_custom_status(token: String, status: String) {
+    handlers::orchestration_set_custom_status(&token, &status);
 }
 
 /// Reset (clear) custom status on an orchestration (fire-and-forget, no yield needed).
 #[pyfunction]
-fn orchestration_reset_custom_status(instance_id: String) {
-    handlers::orchestration_reset_custom_status(&instance_id);
+fn orchestration_reset_custom_status(token: String) {
+    handlers::orchestration_reset_custom_status(&token);
 }
 
 /// Read the current custom status value from an orchestration context.
 /// Returns None if no custom status has been set.
 #[pyfunction]
-fn orchestration_get_custom_status(instance_id: String) -> Option<String> {
-    handlers::orchestration_get_custom_status(&instance_id)
+fn orchestration_get_custom_status(token: String) -> Option<String> {
+    handlers::orchestration_get_custom_status(&token)
 }
 
 /// Set a KV value on an orchestration (fire-and-forget, no yield needed).
 #[pyfunction]
-fn orchestration_set_kv_value(instance_id: String, key: String, value: String) {
-    handlers::orchestration_set_kv_value(&instance_id, &key, &value);
+fn orchestration_set_kv_value(token: String, key: String, value: String) {
+    handlers::orchestration_set_kv_value(&token, &key, &value);
 }
 
 /// Read a KV value from an orchestration context.
 #[pyfunction]
-fn orchestration_get_kv_value(instance_id: String, key: String) -> Option<String> {
-    handlers::orchestration_get_kv_value(&instance_id, &key)
+fn orchestration_get_kv_value(token: String, key: String) -> Option<String> {
+    handlers::orchestration_get_kv_value(&token, &key)
 }
 
 /// Read all KV values from an orchestration context.
 #[pyfunction]
-fn orchestration_get_kv_all_values(
-    instance_id: String,
-) -> std::collections::HashMap<String, String> {
-    handlers::orchestration_get_kv_all_values(&instance_id)
+fn orchestration_get_kv_all_values(token: String) -> std::collections::HashMap<String, String> {
+    handlers::orchestration_get_kv_all_values(&token)
 }
 
 /// Read all KV keys from an orchestration context.
 #[pyfunction]
-fn orchestration_get_kv_all_keys(instance_id: String) -> Vec<String> {
-    handlers::orchestration_get_kv_all_keys(&instance_id)
+fn orchestration_get_kv_all_keys(token: String) -> Vec<String> {
+    handlers::orchestration_get_kv_all_keys(&token)
 }
 
 /// Read the KV length from an orchestration context.
 #[pyfunction]
-fn orchestration_get_kv_length(instance_id: String) -> usize {
-    handlers::orchestration_get_kv_length(&instance_id)
+fn orchestration_get_kv_length(token: String) -> usize {
+    handlers::orchestration_get_kv_length(&token)
 }
 
 /// Clear a single KV value on an orchestration (fire-and-forget, no yield needed).
 #[pyfunction]
-fn orchestration_clear_kv_value(instance_id: String, key: String) {
-    handlers::orchestration_clear_kv_value(&instance_id, &key);
+fn orchestration_clear_kv_value(token: String, key: String) {
+    handlers::orchestration_clear_kv_value(&token, &key);
 }
 
 /// Clear all KV values on an orchestration (fire-and-forget, no yield needed).
 #[pyfunction]
-fn orchestration_clear_all_kv_values(instance_id: String) {
-    handlers::orchestration_clear_all_kv_values(&instance_id);
+fn orchestration_clear_all_kv_values(token: String) {
+    handlers::orchestration_clear_all_kv_values(&token);
 }
 
 /// Prune KV values older than the provided cutoff.
 #[pyfunction]
-fn orchestration_prune_kv_values(instance_id: String, cutoff_ms: u64) -> usize {
-    handlers::orchestration_prune_kv_values(&instance_id, cutoff_ms)
+fn orchestration_prune_kv_values(token: String, cutoff_ms: u64) -> usize {
+    handlers::orchestration_prune_kv_values(&token, cutoff_ms)
 }
 
 /// Get a Client from the stored ActivityContext (for use in activities).

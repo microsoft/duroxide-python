@@ -179,6 +179,50 @@ def test_sqlite_public_activity_and_orchestration():
         runtime.shutdown(100)
 
 
+@pytest.mark.parametrize("typed", [False, True])
+def test_sqlite_races_preserve_failures_values_and_shutdown(typed):
+    runtime, provider, hooks = fixture()
+    client = Client(provider)
+
+    @runtime.register_activity("LifecycleRaceFail")
+    def fail(_context, _input):
+        raise RuntimeError("race-failure")
+
+    runtime.register_activity("LifecycleRaceValue", lambda _context, _input: {"err": "data", "ok": True})
+
+    @runtime.register_orchestration("LifecycleRaceFlow")
+    def flow(context, _input):
+        schedule = context.schedule_activity_typed if typed else context.schedule_activity
+        race = context.race_typed if typed else context.race
+        direct = None
+        try:
+            yield schedule("LifecycleRaceFail", None)
+        except Exception as error:
+            direct = {"type": type(error).__name__, "message": str(error)}
+        raced = None
+        try:
+            yield race(context.schedule_timer(60_000), schedule("LifecycleRaceFail", None))
+        except Exception as error:
+            raced = {"type": type(error).__name__, "message": str(error)}
+        winner = yield race(schedule("LifecycleRaceValue", None), context.schedule_timer(60_000))
+        return {"direct": direct, "raced": raced, "winner": winner}
+
+    runtime.start()
+    try:
+        client.start_orchestration("lifecycle-race", "LifecycleRaceFlow", None)
+        result = client.wait_for_orchestration("lifecycle-race", 5000)
+        assert result.status == "Completed"
+        assert result.output["direct"] is not None
+        assert "race-failure" in result.output["direct"]["message"]
+        assert result.output["raced"] == result.output["direct"]
+        assert result.output["winner"] == {"index": 0, "value": {"err": "data", "ok": True}}
+    finally:
+        runtime.shutdown(100)
+    assert runtime.shutdown(0) is None
+    if hooks:
+        retired(hooks)
+
+
 @hook_test
 def test_partial_startup_failure_retains_rollback():
     runtime, _, hooks = fixture()

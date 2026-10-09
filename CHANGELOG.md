@@ -31,6 +31,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - SQLite-only real-wrapper lifecycle coverage, feature-gated provider/fault controls,
   ordered race repetitions, isolated held-provider probes, and production-export checks.
 
+## [0.2.0] - 2026-10-04
+
+### Changed
+
+- **Breaking: `ctx.race()` and `ctx.race_typed()` raise when the winner failed.** Before, a
+  winning activity or sub-orchestration that failed came back like a success:
+  `{"index": ..., "value": ...}`, with the error text in `value`. Nothing marked it as an
+  error. Now the `yield` raises the same exception as yielding that task on its own: same
+  type, same message. If the orchestration does not catch it, the orchestration fails.
+  - Winners that succeeded, timers, events and dequeued messages return
+    `{"index": ..., "value": ...}` as before.
+  - Code that read the error text from `value` must catch the exception instead.
+  - A race over a task type that `race()` does not support now raises
+    `unsupported task in select`. Before, it returned that text as the value.
+  - Instances in flight: if a history already holds a race won by a failed task, the replay
+    now raises at that race. If the code then takes a different path than the first run did,
+    the instance fails. Upgrade when no such instance is running.
+
+### Added
+
+- **`worker_lock_renewal_buffer_ms`, `session_lock_timeout_ms`,
+  `session_lock_renewal_buffer_ms` runtime options** — map to `worker_lock_renewal_buffer`,
+  `session_lock_timeout` and `session_lock_renewal_buffer` of the Rust runtime. Keyword
+  arguments of `RuntimeOptions`, added after the existing ones. With these, every lock
+  timeout and renewal buffer of the runtime can be set from Python.
+- `tests/test_lock_options.py` — checks that every lock option reaches the runtime, from the
+  renewal intervals the runtime logs.
+
+## [0.1.29] - 2026-10-03
+
+### Fixed
+
+- **Replays of the same instance no longer share a native context.** The synchronous
+  context calls (`ctx.set_kv_value` / `ctx.get_kv_value` and the other KV calls,
+  `ctx.set_custom_status` / `ctx.get_custom_status`, and `ctx.trace_*`) found the Rust
+  `OrchestrationContext` by instance ID. Two replays of one instance can be alive in the
+  same process: a replay that lost its orchestration lock (for example after the process
+  stalled for longer than the lock timeout) keeps running until its commit is rejected,
+  and another dispatcher slot can fetch the instance again. Calls from one replay then
+  reached the other. The replay that held the lock could commit events it never
+  produced, and the next replay failed with `nondeterministic: kv set mismatch` or
+  `nondeterministic: schedule mismatch`. The context is now looked up by a token that is
+  new for every invocation, the same way activity contexts already work.
+
+### Changed
+
+- **Bumped `duroxide-pg` dependency** — `0.1.34` → `0.1.35`.
+
+### Added
+
+- **`orchestrator_lock_timeout_ms`, `orchestrator_lock_renewal_buffer_ms`, `max_attempts`
+  runtime options** — map to `orchestrator_lock_timeout`, `orchestrator_lock_renewal_buffer`
+  and `max_attempts` of the Rust runtime. Keyword arguments of `RuntimeOptions`, added after
+  the existing ones.
+- `tests/test_replay_isolation.py` — regression tests that stop the process in the middle
+  of a replay for longer than the orchestration lock timeout (POSIX only).
+
 ## [0.1.28] - 2026-09-03
 
 ### Changed

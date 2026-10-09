@@ -124,6 +124,8 @@ static ACTIVITY_CTXS: LazyLock<Mutex<HashMap<String, ActivityContext>>>
 
 Python `ctx.trace_info()` → PyO3 function → looks up Rust context by key → delegates to `ctx.trace()`.
 
+Both maps are keyed by an atomic token that is new for every invocation (`act-{n}`, `orch-{n}`), never by `instance_id`: two replays of one instance can be alive in the same process, and each must only reach its own context. Rust passes the orchestration token in `ctxInfo["_ctxToken"]`.
+
 ## ScheduledTask Protocol
 
 Python `OrchestrationContext` methods return dicts with a `"type"` key. Rust deserializes to `ScheduledTask` enum:
