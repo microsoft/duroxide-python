@@ -83,6 +83,42 @@ def test_kv_request_response(provider):
         runtime.shutdown(100)
 
 
+def test_kv_keys_listed_and_pruned_in_key_order_and_prune_replays(provider):
+    """duroxide 0.1.31 lists and prunes keys in key order (microsoft/duroxide#57). Before,
+    both used hash order, which differs between replays, so the replay of a prune that cleared
+    several keys failed with "nondeterministic: kv clear mismatch"."""
+    keys = ["k7", "k3", "k5", "k1", "k8", "k2", "k6", "k4"]
+    client = Client(provider)
+    runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
+
+    @runtime.register_orchestration("KvKeyOrder")
+    def kv_key_order(ctx, _input):
+        for key in keys:
+            ctx.set_kv_value(key, key)
+        listed = ctx.get_kv_all_keys()
+        # A cutoff after every write prunes all eight keys.
+        pruned = ctx.prune_kv_values_updated_before(2**53 - 1)
+        # The next turn replays the writes and the prune, and must clear the keys in the
+        # order this turn recorded.
+        yield ctx.schedule_timer(5)
+        return {"listed": listed, "pruned": pruned, "after": ctx.get_kv_all_keys()}
+
+    runtime.start()
+
+    try:
+        instance_id = uid("kv-key-order")
+        client.start_orchestration(instance_id, "KvKeyOrder", "")
+        result = client.wait_for_orchestration(instance_id, 5_000)
+        assert result.status == "Completed", f"orchestration failed: {result.error}"
+        assert result.output == {
+            "listed": ["k1", "k2", "k3", "k4", "k5", "k6", "k7", "k8"],
+            "pruned": 8,
+            "after": [],
+        }
+    finally:
+        runtime.shutdown(100)
+
+
 def test_kv_bulk_helpers(provider):
     client = Client(provider)
     runtime = Runtime(provider, RuntimeOptions(dispatcher_poll_interval_ms=50))
