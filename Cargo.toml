@@ -8,7 +8,7 @@ name = "duroxide_python"
 crate-type = ["cdylib"]
 
 [dependencies]
-duroxide = { version = "0.1.30", features = ["sqlite"] }
+duroxide = { version = "0.1.31", features = ["sqlite"] }
 duroxide-pg = "0.1.35"
 pyo3 = { version = "0.23", features = ["extension-module", "abi3-py39"] }
 async-trait = "0.1"
@@ -18,6 +18,15 @@ serde_json = "1"
 dotenvy = "0.15"
 parking_lot = "0.12"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter", "json"] }
+
+# Temporary: build against the unreleased duroxide 0.1.31 queue-race fixes
+# (microsoft/duroxide, branch waldemort/queue-race-fixes) and the matching
+# duroxide-pg fetch-lease fix (microsoft/duroxide-pg, branch
+# waldemort/fetch-lease-and-race-validations). Remove this section and pin the
+# released crates once both are published.
+[patch.crates-io]
+duroxide = { git = "https://github.com/microsoft/duroxide", branch = "waldemort/queue-race-fixes" }
+duroxide-pg = { git = "https://github.com/microsoft/duroxide-pg", branch = "waldemort/fetch-lease-and-race-validations" }
 
 
 [profile.release]
