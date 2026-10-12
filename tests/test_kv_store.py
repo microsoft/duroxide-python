@@ -84,7 +84,7 @@ def test_kv_request_response(provider):
 
 
 def test_kv_keys_listed_and_pruned_in_key_order_and_prune_replays(provider):
-    """duroxide 0.1.31 lists and prunes keys in key order (microsoft/duroxide#57). Before,
+    """duroxide 0.1.32 lists and prunes keys in key order (microsoft/duroxide#57). Before,
     both used hash order, which differs between replays, so the replay of a prune that cleared
     several keys failed with "nondeterministic: kv clear mismatch"."""
     keys = ["k7", "k3", "k5", "k1", "k8", "k2", "k6", "k4"]
