@@ -297,7 +297,7 @@ File-based SQLite can hit "database is locked" errors under concurrent orchestra
 
 ### Runtime Shutdown
 
-`Runtime.shutdown(timeout_ms)` waits for the full timeout duration unconditionally. Use a small timeout (e.g., 100ms) in tests.
+`Runtime.shutdown(timeout_ms)` returns as soon as all runtime work has stopped. `timeout_ms` (default 1000) is the longest it waits for in-flight work before cancelling the rest; it is not a fixed delay.
 
 ### Platform-Specific Binary
 

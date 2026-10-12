@@ -8,8 +8,8 @@ name = "duroxide_python"
 crate-type = ["cdylib"]
 
 [dependencies]
-duroxide = { version = "0.1.30", features = ["sqlite"] }
-duroxide-pg = "0.1.35"
+duroxide = { version = "0.1.32", features = ["sqlite"] }
+duroxide-pg = "0.1.36"
 pyo3 = { version = "0.23", features = ["extension-module", "abi3-py39"] }
 async-trait = "0.1"
 tokio = { version = "1", features = ["full"] }
