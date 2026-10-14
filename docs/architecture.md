@@ -297,7 +297,30 @@ File-based SQLite can hit "database is locked" errors under concurrent orchestra
 
 ### Runtime Shutdown
 
-`Runtime.shutdown(timeout_ms)` returns as soon as all runtime work has stopped. `timeout_ms` (default 1000) is the longest it waits for in-flight work before cancelling the rest; it is not a fixed delay.
+In the unreleased lifecycle, `Runtime.shutdown(timeout_ms)` still returns `None`
+on success but observes actual core retirement within supplied grace plus
+5000 ms (1000 ms omitted grace). Idle execution can finish early; zero requests
+force rather than proving immediate quiescence. The first valid stop fixes the
+deadlines; repeated calls cannot obtain a new budget.
+
+The wrapper retains the prepared core Arc before awaiting fallible startup and
+after stop, startup failure, or timeout. The adapter retains one native cleanup
+future independently of bounded callers. Upstream tracking includes native task
+destruction; provider futures can be canceled under the provider's atomic
+acknowledgement and recovery contract. Repeated stop
+therefore observes actual completion/errors rather than an empty wrapper.
+Pre-start stop is terminal; later start/registration reject and metrics are
+unavailable after stop/startup failure. Serialize lifecycle/registration calls
+on the same instance, including calls from threads while the GIL is released.
+
+`TimeoutError` means ordinary waiting ended with cleanup still owned, requiring
+application/supervisor process termination even after genuine late completion.
+Operational/startup errors raise `RuntimeError`, not successful retirement.
+The SDK never kills the process. This narrow adapter does not add the .NET
+foreign-continuation lifetime barrier or track arbitrary Python work, and it does
+not dispose independent Clients, providers, or provider token-refresh work.
+See the [lifecycle guide](user-guide.md#runtime-lifecycle) for validation and
+release prerequisites.
 
 ### Platform-Specific Binary
 

@@ -210,7 +210,7 @@ Orchestration code must be deterministic — same input + history = same sequenc
 - PostgreSQL tests use schema isolation (one schema per test file)
 - `python-dotenv` loads `DATABASE_URL` from `.env`
 - `PyRuntimeOptions(dispatcher_poll_interval_ms=50)` for fast test dispatch
-- `runtime.shutdown(100)` — short timeout, it waits the full duration
+- `runtime.shutdown(100)` — 100 ms grace plus five seconds total headroom; idle work can finish early, and failures raise while retaining cleanup
 - Use `SqliteProvider.in_memory()` only for SQLite smoketest
 - `worker_lock_timeout_ms=2000` for tests needing fast cancellation detection
 

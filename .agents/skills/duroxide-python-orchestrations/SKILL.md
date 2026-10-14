@@ -273,7 +273,7 @@ pytest tests/scenarios/ -v           # scenario tests (6 tests)
 - Use `SqliteProvider.in_memory()` for fast isolated tests (SQLite smoketest only)
 - All PG tests need `DATABASE_URL` in `.env` (loaded by `python-dotenv`)
 - Each test file uses a separate PG schema for isolation
-- Use short `runtime.shutdown(100)` timeout — it waits the full duration
+- `runtime.shutdown(100)` permits 100 ms of grace plus five seconds of cleanup headroom. It can finish early; timeout raises while cleanup remains owned and requires application/supervisor termination.
 - Set `RUST_LOG=info` and use `pytest -s` to see traces in test output
 - Use `worker_lock_timeout_ms=2000` in tests needing fast activity cancellation detection
 

@@ -30,3 +30,24 @@ pytest -v
 ```
 
 After Rust source changes (`src/*.rs`), re-run `maturin develop` before running Python tests.
+
+### Lifecycle checks without PostgreSQL
+
+Use an isolated virtual environment with the declared development dependencies.
+Rebuild/install the extension for each mode; importing an old extension is not
+lifecycle evidence. For example, in PowerShell with that environment activated:
+
+```powershell
+maturin develop --features test-hooks
+$env:DUROXIDE_LIFECYCLE_TEST_HOOKS = '1'
+python -m pytest -v tests\test_lifecycle.py tests\test_e2e.py::test_sqlite_smoketest
+Remove-Item Env:DUROXIDE_LIFECYCLE_TEST_HOOKS
+maturin develop
+python -m pytest -v tests\test_lifecycle.py tests\test_e2e.py::test_sqlite_smoketest
+```
+
+Instrumented cases exercise real provider waits and contained owned-task faults.
+The suite checks native import provenance, 100 repetitions per ordered race,
+bounded child-process cleanup, and production export absence. Production mode
+skips only hook-dependent cases. Do not publish instrumented assets or temporary
+local core overrides. A matching published core minimum is required before release.
