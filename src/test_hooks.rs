@@ -25,9 +25,13 @@ pub fn _lifecycle_test_hooks(runtime: &PyRuntime) -> LifecycleTestHooks {
 #[pymethods]
 impl LifecycleTestHooks {
     fn hold(&self, point: &str) -> PyResult<()> {
-        self.hooks
-            .hold(parse_point(point)?)
-            .map(|_| ())
+        let parsed = parse_point(point)?;
+        let gate = if point == "blocking-provider" {
+            self.hooks.hold_blocking(parsed)
+        } else {
+            self.hooks.hold(parsed)
+        };
+        gate.map(|_| ())
             .map_err(|error| PyRuntimeError::new_err(format!("test gate: {error:?}")))
     }
 
@@ -76,12 +80,12 @@ fn parse_point(point: &str) -> PyResult<LifecyclePoint> {
     match point {
         "startup" => Ok(LifecyclePoint::StartupBeforeIo),
         "partial-startup" => Ok(LifecyclePoint::StartupAfterSpawn(
-            LifecycleTask::OrchestrationDispatcher,
+            LifecycleTask::OrchestrationSlot,
         )),
-        "provider" => Ok(LifecyclePoint::ProviderReturn(
+        "provider" | "blocking-provider" => Ok(LifecyclePoint::ProviderReturn(
             ProviderOperation::FetchOrchestration,
         )),
-        "worker" => Ok(LifecyclePoint::ParentWork(LifecycleTask::WorkDispatcher)),
+        "worker" => Ok(LifecyclePoint::ParentWork(LifecycleTask::WorkerSlot)),
         "force" => Ok(LifecyclePoint::ForceRequested),
         "coordinator" => Ok(LifecyclePoint::ShutdownCoordinator),
         _ => Err(PyRuntimeError::new_err("unknown lifecycle test point")),

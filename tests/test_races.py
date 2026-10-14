@@ -555,3 +555,105 @@ class TestTypePreservation:
         r3 = run_orchestration(provider, "RaceObject", None, setup_obj)
         assert r3.output["value"] == {"key": "val"}
         assert isinstance(r3.output["value"], dict)
+
+
+# ─── dequeue_event raced against a timer ─────────────────────────
+#
+# A drain loop races a queue read against a short timer. When the timer wins, the read is
+# dropped. Since duroxide 0.1.32 a dropped read is cancelled at the drop: it never takes a
+# message, replay picks the same winners as the live run, and continue_as_new carries exactly
+# the messages that no read returned. Before, a timer win followed by a message in the same
+# batch could fail the instance with "nondeterministic: history schedule but no emitted
+# action", skip a message, or lose one at continue_as_new.
+
+
+def _decode_message(value):
+    return json.loads(value) if isinstance(value, str) else value
+
+
+def _produce_numbered(client, instance_id, count):
+    """Numbered messages with deterministic 0-30 ms gaps, a 100 ms pause after every 50th
+    message so the timer also wins, and a final {"done": True}."""
+    for i in range(count):
+        client.enqueue_event(instance_id, "q", {"i": i})
+        time.sleep(0.1 if i % 50 == 49 else ((i * 17 + 7) % 31) / 1000)
+    client.enqueue_event(instance_id, "q", {"done": True})
+
+
+class TestDequeueRacedAgainstTimer:
+    def test_read_that_loses_to_timer_takes_no_message(self, provider):
+        count = 300
+        instance_id = uid("race-drain-loop")
+        client = Client(provider)
+        runtime = Runtime(provider, RuntimeOptions(
+            orchestration_concurrency=2,
+            worker_concurrency=2,
+            dispatcher_poll_interval_ms=10,
+        ))
+
+        @runtime.register_orchestration("RaceDrainLoop")
+        def race_drain_loop(ctx, input):
+            seq = []
+            timers = 0
+            while True:
+                winner = yield ctx.race(ctx.dequeue_event("q"), ctx.schedule_timer(20))
+                if winner["index"] == 1:
+                    timers += 1
+                    continue
+                message = _decode_message(winner["value"])
+                if message.get("done"):
+                    return {"seq": seq, "timers": timers}
+                seq.append(message["i"])
+
+        runtime.start()
+        try:
+            client.start_orchestration(instance_id, "RaceDrainLoop", None)
+            _produce_numbered(client, instance_id, count)
+            result = client.wait_for_orchestration(instance_id, 60_000)
+
+            assert result.status == "Completed", f"orchestration failed: {result.error}"
+            assert result.output["seq"] == list(range(count))
+            assert result.output["timers"] > 0, "the timer never won, so no read was dropped"
+        finally:
+            runtime.shutdown(100)
+
+    def test_continue_as_new_after_lost_read_carries_unread_messages(self, provider):
+        count = 200
+        instance_id = uid("race-drain-can")
+        client = Client(provider)
+        runtime = Runtime(provider, RuntimeOptions(
+            orchestration_concurrency=2,
+            worker_concurrency=2,
+            dispatcher_poll_interval_ms=10,
+        ))
+
+        @runtime.register_orchestration("RaceDrainCan")
+        def race_drain_can(ctx, state):
+            next_i = state["next"]
+            while True:
+                winner = yield ctx.race(ctx.dequeue_event("q"), ctx.schedule_timer(10))
+                if winner["index"] == 1:
+                    # The read lost and is dropped. Messages it did not take move to the next
+                    # execution.
+                    yield ctx.continue_as_new({"next": next_i, "cans": state["cans"] + 1})
+                    return None
+                message = _decode_message(winner["value"])
+                if message.get("done"):
+                    return {"next": next_i, "cans": state["cans"]}
+                if message["i"] != next_i:
+                    raise ValueError(f"expected message {next_i}, got {message['i']}")
+                next_i += 1
+
+        runtime.start()
+        try:
+            client.start_orchestration(instance_id, "RaceDrainCan", {"next": 0, "cans": 0})
+            _produce_numbered(client, instance_id, count)
+            result = client.wait_for_orchestration(instance_id, 60_000)
+
+            assert result.status == "Completed", f"orchestration failed: {result.error}"
+            assert result.output["next"] == count
+            assert result.output["cans"] > 0, (
+                "the timer never won, so the instance never continued as new"
+            )
+        finally:
+            runtime.shutdown(100)

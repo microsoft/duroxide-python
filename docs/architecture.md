@@ -304,8 +304,10 @@ force rather than proving immediate quiescence. The first valid stop fixes the
 deadlines; repeated calls cannot obtain a new budget.
 
 The wrapper retains the prepared core Arc before awaiting fallible startup and
-after stop, startup failure, or timeout. The core retains entered provider I/O
-and its owned execution/cleanup tree independently of the caller. Repeated stop
+after stop, startup failure, or timeout. The adapter retains one native cleanup
+future independently of bounded callers. Upstream tracking includes native task
+destruction; provider futures can be canceled under the provider's atomic
+acknowledgement and recovery contract. Repeated stop
 therefore observes actual completion/errors rather than an empty wrapper.
 Pre-start stop is terminal; later start/registration reject and metrics are
 unavailable after stop/startup failure. Serialize lifecycle/registration calls

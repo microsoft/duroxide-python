@@ -78,6 +78,10 @@ process termination. Cleanup remains owned; the SDK never exits the process itse
 This contract covers core-owned execution, not arbitrary unregistered Python work
 or the .NET adapter's additional foreign-continuation barrier. Independent
 provider-owned background work has a separate lifetime.
+The adapter retains one native cleanup future independently of these bounded
+waits. Native Rust shutdown itself awaits cleanup without a total limit. Provider
+futures can be canceled under the provider's atomic acknowledgement and peek-lock
+recovery contract.
 
 This complete example has no admitted work and can finish before grace:
 
@@ -470,7 +474,7 @@ response = client.get_kv_value("server-1", "response:op-1")
 - `ctx.set_kv_value(key, value)` — set or overwrite a key
 - `ctx.get_kv_value(key)` — read the current value for a key in the active instance
 - `ctx.get_kv_all_values()` — return a snapshot dict of all current KV entries
-- `ctx.get_kv_all_keys()` — return the list of active keys
+- `ctx.get_kv_all_keys()` — return the list of active keys, in key order
 - `ctx.get_kv_length()` — return the number of active keys
 - `ctx.clear_kv_value(key)` — remove a single key
 - `ctx.clear_all_kv_values()` — clear all keys for the active instance
@@ -524,6 +528,23 @@ def multi_queue(ctx, input):
     command = yield ctx.dequeue_event("commands")
     config = yield ctx.dequeue_event("config")
     return {"command": command, "config": config}
+```
+
+### Draining with a Timeout
+
+`ctx.race()` can bound a read with a timer. A read that loses the race takes no message, and
+`continue_as_new` carries every message that no read returned (at most 100; the runtime drops
+the rest with a warning):
+
+```python
+@runtime.register_orchestration("Drain")
+def drain(ctx, input):
+    handled = []
+    while True:
+        winner = yield ctx.race(ctx.dequeue_event("requests"), ctx.schedule_timer(1000))
+        if winner["index"] == 1:
+            return handled  # no message for 1 s
+        handled.append(winner["value"])
 ```
 
 ## Retry on Session — Retry with Session Affinity

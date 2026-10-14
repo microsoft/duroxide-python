@@ -44,12 +44,15 @@ def diagnostic(error, category, incomplete=False):
         assert "terminate the process" not in message
 
 
-def retired(hooks, forced=None):
+def retired(hooks, forced=None, rollback=False):
     state = json.loads(hooks.snapshot())
     assert state["active"] == 0
     assert state["cleanupActive"] == 0
     assert state["started"] == state["completed"]
-    assert state["coordinators"] == 1
+    if rollback:
+        assert 1 <= state["coordinators"] <= 2
+    else:
+        assert state["coordinators"] == 1
     if forced is not None:
         assert state["forceRequests"] == int(forced)
 
@@ -227,13 +230,13 @@ def test_sqlite_races_preserve_failures_values_and_shutdown(typed):
 def test_partial_startup_failure_retains_rollback():
     runtime, _, hooks = fixture()
     hooks.hold("partial-startup")
-    hooks.hold("provider")
+    hooks.hold("blocking-provider")
     hooks.fail("partial-startup", SECRET)
     with ThreadPoolExecutor(max_workers=1) as pool:
         startup = pool.submit(runtime.start)
         try:
             hooks.wait_entered("partial-startup")
-            hooks.wait_entered("provider")
+            hooks.wait_entered("blocking-provider")
             hooks.release("partial-startup")
             with pytest.raises(RuntimeError) as error:
                 startup.result(timeout=2)
@@ -243,13 +246,13 @@ def test_partial_startup_failure_retains_rollback():
                 runtime.start()
         finally:
             hooks.release("partial-startup")
-            hooks.release("provider")
+            hooks.release("blocking-provider")
     with pytest.raises(RuntimeError) as error:
         runtime.shutdown(0)
     diagnostic(error, "lifecycle_shutdown_failed")
     with pytest.raises(RuntimeError, match="lifecycle_shutdown_failed"):
         runtime.shutdown(30_000)
-    retired(hooks)
+    retired(hooks, rollback=True)
 
 
 @hook_test
@@ -265,7 +268,20 @@ def test_operational_failure_is_retained_on_repeated_shutdown():
     diagnostic(error, "lifecycle_shutdown_failed")
     with pytest.raises(RuntimeError, match="lifecycle_shutdown_failed"):
         runtime.shutdown(30_000)
-    retired(hooks)
+    retired(hooks, rollback=True)
+
+
+@hook_test
+def test_cancellation_safe_fetch_retires_without_waiting_for_its_gate():
+    runtime, _, hooks = fixture()
+    hooks.hold("provider")
+    runtime.start()
+    hooks.wait_entered("provider")
+    try:
+        runtime.shutdown(1000)
+        retired(hooks, False)
+    finally:
+        hooks.release("provider")
 
 
 @hook_test
@@ -274,16 +290,16 @@ def test_ordered_force_and_retirement_100_times(force):
     with ThreadPoolExecutor(max_workers=1) as pool:
         for _ in range(100):
             runtime, _, hooks = fixture()
-            hooks.hold("provider")
+            hooks.hold("blocking-provider")
             hooks.hold("force" if force else "coordinator")
             runtime.start()
-            hooks.wait_entered("provider")
+            hooks.wait_entered("blocking-provider")
             stop = pool.submit(runtime.shutdown, 0 if force else 30_000)
             try:
                 hooks.wait_entered("force" if force else "coordinator")
                 assert json.loads(hooks.snapshot())["active"] > 0
             finally:
-                hooks.release("provider")
+                hooks.release("blocking-provider")
                 hooks.release("force" if force else "coordinator")
             assert stop.result(timeout=2) is None
             assert runtime.shutdown() is None
@@ -292,7 +308,7 @@ def test_ordered_force_and_retirement_100_times(force):
 
 @hook_test
 @pytest.mark.parametrize("scenario", ["late", "retained"])
-def test_isolated_provider_timeout(scenario):
+def test_isolated_non_yielding_provider_timeout(scenario):
     child = subprocess.Popen(
         [sys.executable, str(Path(__file__).parent / "fixtures" / "lifecycle_probe.py"), scenario],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,

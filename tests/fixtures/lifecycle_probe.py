@@ -65,9 +65,9 @@ def main():
         emit("EXIT_READY")
         return
     hooks = native._lifecycle_test_hooks(runtime._native)
-    hooks.hold("provider")
+    hooks.hold("blocking-provider")
     runtime.start()
-    hooks.wait_entered("provider")
+    hooks.wait_entered("blocking-provider")
     emit("STOPPING")
     start = time.monotonic()
     try:
@@ -99,7 +99,7 @@ def main():
         emit("RETAINED")
         threading.Event().wait()
     else:
-        hooks.release("provider")
+        hooks.release("blocking-provider")
         deadline = time.monotonic() + 2
         while True:
             try:

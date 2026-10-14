@@ -6,6 +6,7 @@ use pyo3::prelude::*;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tokio::sync::watch;
 
 use duroxide::providers::TagFilter;
 use duroxide::runtime::{self, OrchestrationHandler, OrchestrationRegistry};
@@ -156,6 +157,7 @@ pub struct PyRuntime {
     inner: Option<Arc<runtime::Runtime>>,
     started: bool,
     shutdown_requested: bool,
+    stop: Option<ShutdownOperation>,
     startup_error: Option<runtime::RuntimeStartError>,
     #[cfg(feature = "test-hooks")]
     pub(crate) test_hooks: runtime::test_hooks::LifecycleHooks,
@@ -178,6 +180,7 @@ impl PyRuntime {
             inner: None,
             started: false,
             shutdown_requested: false,
+            stop: None,
             startup_error: None,
             #[cfg(feature = "test-hooks")]
             test_hooks: runtime::test_hooks::LifecycleHooks::default(),
@@ -199,6 +202,7 @@ impl PyRuntime {
             inner: None,
             started: false,
             shutdown_requested: false,
+            stop: None,
             startup_error: None,
             #[cfg(feature = "test-hooks")]
             test_hooks: runtime::test_hooks::LifecycleHooks::default(),
@@ -431,17 +435,24 @@ impl PyRuntime {
     /// Shutdown the runtime gracefully.
     #[pyo3(signature = (timeout_ms=None))]
     fn shutdown(&mut self, py: Python<'_>, timeout_ms: Option<i64>) -> PyResult<()> {
-        let (grace, grace_deadline, total_deadline) = shutdown_deadlines(timeout_ms)?;
-        if let Some(rt) = &self.inner {
-            py.allow_threads(|| {
-                let _executor = TOKIO_RT.enter();
-                rt.request_shutdown_until(grace_deadline, total_deadline)
-            })
-            .map_err(shutdown_error)?;
+        let (grace_deadline, total_deadline) = shutdown_deadlines(timeout_ms)?;
+        if self.stop.is_none() {
+            if let Some(rt) = &self.inner {
+                rt.request_shutdown();
+                let (completed, completion) = watch::channel(None);
+                let runtime = rt.clone();
+                TOKIO_RT.spawn(async move {
+                    completed.send_replace(Some(runtime.shutdown_until(grace_deadline).await));
+                });
+                self.stop = Some(ShutdownOperation {
+                    completion,
+                    total_deadline,
+                });
+            }
         }
         self.shutdown_requested = true;
-        if let Some(rt) = &self.inner {
-            py.allow_threads(|| TOKIO_RT.block_on(rt.clone().shutdown_with_grace(grace)))
+        if let Some(stop) = self.stop.clone() {
+            py.allow_threads(|| TOKIO_RT.block_on(stop.wait()))
                 .map_err(shutdown_error)?;
         } else {
             self.activity_builders.clear();
@@ -472,20 +483,58 @@ fn start_error(error: runtime::RuntimeStartError) -> PyErr {
     PyRuntimeError::new_err(format!("lifecycle_start_failed: {error}"))
 }
 
-fn shutdown_error(error: runtime::RuntimeShutdownError) -> PyErr {
-    match error {
-        runtime::RuntimeShutdownError::TimedOut => {
-            PyTimeoutError::new_err(format!("lifecycle_shutdown_timed_out: {error}"))
+#[derive(Clone)]
+struct ShutdownOperation {
+    completion:
+        watch::Receiver<Option<Result<runtime::ShutdownOutcome, runtime::RuntimeShutdownError>>>,
+    total_deadline: Instant,
+}
+
+#[derive(Clone, Copy)]
+enum ShutdownWaitError {
+    TimedOut,
+    OwnerLost,
+    Core(runtime::RuntimeShutdownError),
+}
+
+impl ShutdownOperation {
+    async fn wait(mut self) -> Result<runtime::ShutdownOutcome, ShutdownWaitError> {
+        loop {
+            {
+                let completed = self.completion.borrow_and_update();
+                if let Some(result) = *completed {
+                    return result.map_err(ShutdownWaitError::Core);
+                }
+                if Instant::now() >= self.total_deadline {
+                    return Err(ShutdownWaitError::TimedOut);
+                }
+            }
+            tokio::select! {
+                biased;
+                changed = self.completion.changed() => {
+                    if changed.is_err() {
+                        return Err(ShutdownWaitError::OwnerLost);
+                    }
+                },
+                () = tokio::time::sleep_until(self.total_deadline.into()) => {},
+            }
         }
-        runtime::RuntimeShutdownError::InvalidTimeouts
-        | runtime::RuntimeShutdownError::DeadlineOverflow => {
-            PyValueError::new_err(format!("lifecycle_invalid_timeout: {error}"))
-        }
-        _ => PyRuntimeError::new_err(format!("lifecycle_shutdown_failed: {error}")),
     }
 }
 
-fn shutdown_deadlines(timeout_ms: Option<i64>) -> PyResult<(Duration, Instant, Instant)> {
+fn shutdown_error(error: ShutdownWaitError) -> PyErr {
+    match error {
+        ShutdownWaitError::TimedOut => PyTimeoutError::new_err(
+            "lifecycle_shutdown_timed_out: cleanup remains owned and incomplete; application or supervisor must terminate the process",
+        ),
+        ShutdownWaitError::OwnerLost => PyRuntimeError::new_err(
+            "lifecycle_shutdown_failed: native shutdown owner failed; quiescence is unproven; application or supervisor must terminate the process",
+        ),
+        ShutdownWaitError::Core(error) => PyRuntimeError::new_err(format!("lifecycle_shutdown_failed: {error}")),
+    }
+}
+
+fn shutdown_deadlines(timeout_ms: Option<i64>) -> PyResult<(Instant, Instant)> {
     let invalid = || {
         PyValueError::new_err(
         "lifecycle_invalid_timeout: timeout_ms must be a nonnegative supported millisecond duration",
@@ -505,7 +554,7 @@ fn shutdown_deadlines(timeout_ms: Option<i64>) -> PyResult<(Duration, Instant, I
     total_deadline
         .checked_add(Duration::from_millis(1))
         .ok_or_else(invalid)?;
-    Ok((grace, grace_deadline, total_deadline))
+    Ok((grace_deadline, total_deadline))
 }
 
 /// Parse a tag filter string into a TagFilter.
