@@ -58,6 +58,14 @@ shutdown calls. Version ordering and duplicate-registration policy are unchanged
 Adapter error messages do not include panic payloads; this does not suppress
 Rust's separate process-wide panic-hook output.
 
+The normal `Runtime` constructor installs the SDK's generator drivers. The
+underlying, unconfigured `PyRuntime` constructor is an internal setup boundary:
+a missing-driver `lifecycle_start_failed` rejects before accepting startup, so it
+does not retain an activation failure. Installing the real SDK drivers can still
+allow the first start; choosing a no-work shutdown instead succeeds and makes the
+instance terminal. This distinction does not change retained failures after
+startup has been accepted or add a supported low-level setup API.
+
 `runtime.shutdown()` uses one second of grace plus five seconds of cleanup
 headroom. `shutdown(0)` requests immediate force, still with a five-second total.
 The first stop fixes the deadlines; repeating it never grants a new budget.
@@ -72,9 +80,10 @@ before a no-work or repeated stop; `None` selects the omitted grace.
 
 Stopping before start is terminal. Do not overlap lifecycle or registration calls
 on the same instance, including across threads while the GIL is released. Metrics
-return `None` after stop. Repeated shutdown can observe real late completion, but a
-timeout permanently rules out reuse and still requires application/supervisor
-process termination. Cleanup remains owned; the SDK never exits the process itself.
+return `None` after accepted startup failure or stop. Repeated shutdown can observe
+real late completion, but a timeout permanently rules out reuse and still requires
+application/supervisor process termination. Cleanup remains owned; the SDK never
+exits the process itself.
 This contract covers core-owned execution, not arbitrary unregistered Python work
 or the .NET adapter's additional foreign-continuation barrier. Independent
 provider-owned background work has a separate lifetime.
@@ -82,6 +91,12 @@ The adapter retains one native cleanup future independently of these bounded
 waits. Native Rust shutdown itself awaits cleanup without a total limit. Provider
 futures can be canceled under the provider's atomic acknowledgement and peek-lock
 recovery contract.
+Proven cleanup releases obsolete native activity-callback ownership, including
+quiescent errors and actual late completion without another shutdown call. The
+terminal result and original budgets remain available independently of those
+callbacks. Unproven cleanup still retains ownership. This release does not clear
+the global orchestration-handler map, dispose independently owned providers or
+clients, or retract a prior timeout's process-termination obligation.
 
 This complete example has no admitted work and can finish before grace:
 
@@ -100,6 +115,10 @@ A finite grace cannot promise bounded forced cleanup. Do not swallow
 `TimeoutError` and continue using the worker, free foreign callback state, or
 assume caught `RuntimeError` proves quiescence. Surface failure to the application
 or supervisor responsible for terminating the process.
+In particular, `lifecycle_shutdown_failed` covers both a core-reported failure
+whose cleanup completed and loss of the shutdown owner with unproven quiescence.
+The category or exception type alone is not cleanup proof; the latter outcome
+still requires process termination and retained ownership.
 
 ## Orchestration Patterns
 

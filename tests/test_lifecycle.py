@@ -5,17 +5,26 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import queue
+import shutil
 import subprocess
 import sys
-import threading
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
 from duroxide import Client, Runtime, RuntimeOptions, SqliteProvider
 from duroxide import _duroxide as native
+from duroxide import _orchestration_functions
+from duroxide.driver import create_generator, next_step, dispose_generator
+
+from lifecycle_probe_support import (
+    LifecycleProbe,
+    assert_timeout_measurements,
+    clock_info,
+    timeout_delivery_budget,
+)
 
 
 INSTRUMENTED = os.environ.get("DUROXIDE_LIFECYCLE_TEST_HOOKS") == "1"
@@ -31,17 +40,19 @@ def fixture(**options):
     return runtime, provider, hooks
 
 
-def diagnostic(error, category, incomplete=False):
+def diagnostic(error, category):
+    expected_type = ValueError if category == "lifecycle_invalid_timeout" else RuntimeError
+    assert type(error.value) is expected_type
     message = str(error.value)
     assert category in message
     assert SECRET not in message
     assert "sentinel" not in message
-    if incomplete:
-        assert "cleanup remains owned and incomplete" in message
-        assert "terminate the process" in message
-    if category == "lifecycle_shutdown_failed":
-        assert "cleanup completed and is quiescent" in message
-        assert "terminate the process" not in message
+
+
+def assert_quiescent_shutdown_failure(error):
+    diagnostic(error, "lifecycle_shutdown_failed")
+    assert "cleanup completed and is quiescent" in str(error.value)
+    assert "terminate the process" not in str(error.value)
 
 
 def retired(hooks, forced=None, rollback=False):
@@ -119,6 +130,109 @@ def test_prestart_shutdown_is_terminal_no_work():
     assert runtime.metrics_snapshot() is None
 
 
+def test_missing_native_drivers_reject_before_accepting_startup():
+    provider = SqliteProvider.in_memory()
+    runtime = native.PyRuntime.from_sqlite(provider._native)
+    with pytest.raises(RuntimeError) as error:
+        runtime.start()
+    diagnostic(error, "lifecycle_start_failed")
+    assert "generator driver not set" in str(error.value)
+
+    runtime.set_generator_driver(create_generator, next_step, dispose_generator)
+    assert runtime.start() is None
+    assert runtime.metrics_snapshot() is not None
+    assert runtime.shutdown(0) is None
+    assert runtime.shutdown() is None
+    with pytest.raises(RuntimeError, match="lifecycle_terminal"):
+        runtime.start()
+
+
+def test_no_work_stop_after_missing_native_drivers_is_successful_and_terminal():
+    provider = SqliteProvider.in_memory()
+    runtime = native.PyRuntime.from_sqlite(provider._native)
+    with pytest.raises(RuntimeError) as error:
+        runtime.start()
+    diagnostic(error, "lifecycle_start_failed")
+    assert runtime.shutdown(0) is None
+    assert runtime.shutdown() is None
+    with pytest.raises(RuntimeError, match="lifecycle_terminal"):
+        runtime.set_generator_driver(create_generator, next_step, dispose_generator)
+    with pytest.raises(RuntimeError, match="lifecycle_terminal"):
+        runtime.start()
+
+
+@pytest.mark.parametrize("decorator", [False, True])
+@pytest.mark.parametrize("versioned", [False, True])
+@pytest.mark.parametrize("terminal_state", ["stopped", "started", "startup-failed"])
+def test_rejected_registrations_preserve_handler_keys_identity_and_execution(
+    decorator, versioned, terminal_state,
+):
+    active, provider, _ = fixture()
+    terminal, _, _ = fixture(**({"session_idle_timeout_ms": 0} if terminal_state == "startup-failed" else {}))
+    client = Client(provider)
+    prefix = "LifecycleAtomic-" + uuid.uuid4().hex
+    existing, fresh = prefix + "-existing", prefix + "-fresh"
+    version = "1.0.0"
+    existing_key = f"{existing}@{version}" if versioned else existing
+    owned_keys = {existing, fresh, f"{existing}@{version}", f"{fresh}@{version}"}
+    saved = {key: _orchestration_functions[key] for key in owned_keys if key in _orchestration_functions}
+
+    def original(_context, value):
+        return {"handler": "original", "input": value}
+
+    def rejected(_context, value):
+        return {"handler": "rejected", "input": value}
+
+    try:
+        if versioned:
+            active.register_orchestration_versioned(existing, version, original)
+        else:
+            active.register_orchestration(existing, original)
+        active.start()
+        if terminal_state == "startup-failed":
+            with pytest.raises(RuntimeError, match="lifecycle_start_failed"):
+                terminal.start()
+        elif terminal_state == "started":
+            terminal.start()
+        else:
+            terminal.shutdown(0)
+        keys_before = {key for key in owned_keys if key in _orchestration_functions}
+        for index, name in enumerate((existing, fresh)):
+            register = terminal.register_orchestration_versioned if versioned else terminal.register_orchestration
+            args = (name, version) if versioned else (name,)
+            with pytest.raises(RuntimeError, match="lifecycle_terminal"):
+                if decorator:
+                    register(*args)(rejected)
+                else:
+                    register(*args, rejected)
+            assert {key for key in owned_keys if key in _orchestration_functions} == keys_before
+            assert _orchestration_functions[existing_key] is original
+            instance = f"{prefix}-{index}"
+            if versioned:
+                client.start_orchestration_versioned(instance, existing, index, version)
+            else:
+                client.start_orchestration(instance, existing, index)
+            result = client.wait_for_orchestration(instance, 5000)
+            assert result.status == "Completed"
+            assert result.output == {"handler": "original", "input": index}
+    finally:
+        try:
+            active.shutdown(100)
+        finally:
+            try:
+                if terminal_state == "startup-failed":
+                    with pytest.raises(RuntimeError, match="lifecycle_start_failed"):
+                        terminal.shutdown(0)
+                else:
+                    terminal.shutdown(0)
+            finally:
+                for key in owned_keys:
+                    if key in saved:
+                        _orchestration_functions[key] = saved[key]
+                    else:
+                        _orchestration_functions.pop(key, None)
+
+
 def test_fallible_preparation_rejects_options_without_panic():
     runtime, _, _ = fixture(session_idle_timeout_ms=0)
     with pytest.raises(RuntimeError) as error:
@@ -153,9 +267,11 @@ def test_ascending_and_duplicate_versions_keep_existing_successful_startup_polic
 def test_idle_shutdown_short_circuits_and_preserves_success():
     runtime, _, hooks = fixture()
     runtime.start()
-    start = time.monotonic()
+    start = time.perf_counter_ns()
     assert runtime.shutdown(30_000) is None
-    assert time.monotonic() - start < 2
+    elapsed = time.perf_counter_ns() - start
+    print("LIFECYCLE_IDLE " + json.dumps({"elapsedNanoseconds": elapsed, "clock": clock_info()}))
+    assert elapsed < 2_000_000_000, clock_info()
     assert runtime.shutdown(0) is None
     with pytest.raises(RuntimeError, match="lifecycle_terminal"):
         runtime.start()
@@ -242,6 +358,7 @@ def test_partial_startup_failure_retains_rollback():
                 startup.result(timeout=2)
             diagnostic(error, "lifecycle_start_failed")
             assert json.loads(hooks.snapshot())["active"] > 0
+            assert runtime.metrics_snapshot() is None
             with pytest.raises(RuntimeError, match="lifecycle_terminal"):
                 runtime.start()
         finally:
@@ -249,7 +366,7 @@ def test_partial_startup_failure_retains_rollback():
             hooks.release("blocking-provider")
     with pytest.raises(RuntimeError) as error:
         runtime.shutdown(0)
-    diagnostic(error, "lifecycle_shutdown_failed")
+    assert_quiescent_shutdown_failure(error)
     with pytest.raises(RuntimeError, match="lifecycle_shutdown_failed"):
         runtime.shutdown(30_000)
     retired(hooks, rollback=True)
@@ -265,7 +382,7 @@ def test_operational_failure_is_retained_on_repeated_shutdown():
     hooks.release("worker")
     with pytest.raises(RuntimeError) as error:
         runtime.shutdown(100)
-    diagnostic(error, "lifecycle_shutdown_failed")
+    assert_quiescent_shutdown_failure(error)
     with pytest.raises(RuntimeError, match="lifecycle_shutdown_failed"):
         runtime.shutdown(30_000)
     retired(hooks, rollback=True)
@@ -307,47 +424,44 @@ def test_ordered_force_and_retirement_100_times(force):
 
 
 @hook_test
-@pytest.mark.parametrize("scenario", ["late", "retained"])
+@pytest.mark.parametrize("scenario", ["late", "retained", "callbacks-late"])
 def test_isolated_non_yielding_provider_timeout(scenario):
-    child = subprocess.Popen(
-        [sys.executable, str(Path(__file__).parent / "fixtures" / "lifecycle_probe.py"), scenario],
-        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-    )
-    messages = queue.Queue()
-    errors = []
+    with LifecycleProbe(scenario) as probe:
+        probe.expect_phase("STOPPING", 15)
+        timed_out = probe.expect_phase("TIMED_OUT", timeout_delivery_budget(scenario))
+        print("LIFECYCLE_TIMING " + json.dumps({"scenario": scenario, **timed_out}))
+        assert_timeout_measurements(scenario, timed_out)
+        probe.send("retain" if scenario == "retained" else "release")
+        probe.expect_phase("RETAINED" if scenario == "retained" else "RECLAIMED", 3)
 
-    def read_messages():
-        for line in child.stdout:
-            if line.startswith("LIFECYCLE_PROBE "):
-                messages.put(json.loads(line[len("LIFECYCLE_PROBE "):]))
-        messages.put({"phase": "EXIT"})
 
-    def read_errors():
-        errors.append(child.stderr.read())
-
-    reader = threading.Thread(target=read_messages, daemon=True)
-    stderr_reader = threading.Thread(target=read_errors, daemon=True)
-    reader.start()
-    stderr_reader.start()
+@pytest.mark.parametrize("scenario", [
+    "callbacks-prestart", "callbacks-stopped", "callbacks-preparation-failed",
+])
+def test_activity_only_callbacks_collect_after_quiescence_in_live_process(scenario):
+    database_directory = Path(__file__).resolve().parents[1] / "target" / "lifecycle-callbacks" / uuid.uuid4().hex
+    database_directory.mkdir(parents=True)
+    command = [
+        sys.executable, str(Path(__file__).parent / "fixtures" / "lifecycle_probe.py"),
+        scenario, str(database_directory),
+    ]
     try:
-        assert messages.get(timeout=15)["phase"] == "STOPPING"
-        timed_out = messages.get(timeout=7)
-        assert timed_out["phase"] == "TIMED_OUT", timed_out
-        assert (6 if scenario == "late" else 5) <= timed_out["elapsedSeconds"] < (7 if scenario == "late" else 6)
-        assert timed_out["repeatedSeconds"] < 1
-        child.stdin.write("release\n" if scenario == "late" else "retain\n")
-        child.stdin.flush()
-        done = messages.get(timeout=3)
-        assert done["phase"] == ("RECLAIMED" if scenario == "late" else "RETAINED"), done
+        with LifecycleProbe(scenario, command) as probe:
+            report = probe.expect_phase("COLLECTION", 10)
+            print("LIFECYCLE_COLLECTION " + json.dumps({"scenario": scenario, **report}))
+            assert probe.child.poll() is None
+            assert set(report["cases"]) == {"noncapturing", "bound", "self-capturing"}
+            for case in report["cases"].values():
+                assert all(case["collected"].values()), report
+            probe.send("finish")
+            probe.expect_phase("COLLECTION_FINISHED", 3)
     finally:
-        if child.poll() is None:
-            child.kill()
-        child.wait(timeout=5)
-        reader.join(timeout=2)
-        stderr_reader.join(timeout=2)
-        child.stdin.close()
-        child.stdout.close()
-        child.stderr.close()
+        shutil.rmtree(database_directory)
+
+
+@hook_test
+def test_activity_only_callbacks_collect_after_quiescent_operational_failure():
+    test_activity_only_callbacks_collect_after_quiescence_in_live_process("callbacks-operational-failed")
 
 
 def test_retained_completed_runtime_allows_natural_process_exit():

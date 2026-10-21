@@ -3,6 +3,7 @@
 
 import gc
 import json
+from pathlib import Path
 import sys
 import threading
 import time
@@ -11,13 +12,33 @@ import traceback
 from duroxide import Runtime, RuntimeOptions, SqliteProvider
 from duroxide import _duroxide as native
 
+from lifecycle_callbacks import (
+    attach_activity_owner,
+    collect_stopped_owners,
+    collection_state,
+    settle_deferred_references,
+)
+
 
 def emit(phase, **detail):
-    print("LIFECYCLE_PROBE " + json.dumps({"phase": phase, **detail}), flush=True)
+    clock = time.get_clock_info("perf_counter")
+    print("LIFECYCLE_PROBE " + json.dumps({
+        "phase": phase,
+        "clock": {"implementation": clock.implementation, "resolutionSeconds": clock.resolution},
+        **detail,
+    }), flush=True)
 
 
 def main():
     scenario = sys.argv[1]
+    if scenario in (
+        "callbacks-prestart", "callbacks-stopped", "callbacks-preparation-failed",
+        "callbacks-operational-failed",
+    ):
+        emit("COLLECTION", cases=collect_stopped_owners(scenario, Path(sys.argv[2])))
+        assert sys.stdin.readline().strip() == "finish"
+        emit("COLLECTION_FINISHED")
+        return
     runtime = Runtime(SqliteProvider.in_memory(), RuntimeOptions(
         dispatcher_poll_interval_ms=5, service_name="lifecycle-private-sentinel",
     ))
@@ -64,12 +85,13 @@ def main():
         globals()["retained_runtime"] = runtime
         emit("EXIT_READY")
         return
+    references = attach_activity_owner(runtime, "bound")
     hooks = native._lifecycle_test_hooks(runtime._native)
     hooks.hold("blocking-provider")
     runtime.start()
     hooks.wait_entered("blocking-provider")
     emit("STOPPING")
-    start = time.monotonic()
+    start = time.perf_counter_ns()
     try:
         runtime.shutdown(None if scenario == "late" else 0)
         raise AssertionError("held provider falsely completed")
@@ -78,17 +100,18 @@ def main():
         assert "cleanup remains owned and incomplete" in str(error)
         assert "terminate the process" in str(error)
         assert "sentinel" not in str(error)
-    elapsed = time.monotonic() - start
-    repeated = time.monotonic()
+    elapsed = (time.perf_counter_ns() - start) / 1_000_000_000
+    repeated = time.perf_counter_ns()
     try:
         runtime.shutdown(30_000)
         raise AssertionError("repeated stop falsely completed")
     except TimeoutError as error:
         assert "lifecycle_shutdown_timed_out" in str(error)
         assert "sentinel" not in str(error)
-    repeated = time.monotonic() - repeated
+    repeated = (time.perf_counter_ns() - repeated) / 1_000_000_000
     assert json.loads(hooks.snapshot())["active"] > 0
     assert runtime.metrics_snapshot() is None
+    assert not any(collection_state(references).values())
     emit("TIMED_OUT", elapsedSeconds=elapsed, repeatedSeconds=repeated)
     if sys.stdin.readline().strip() == "retain":
         runtime = None
@@ -96,29 +119,39 @@ def main():
         state = json.loads(hooks.snapshot())
         assert state["active"] > 0
         assert state["coordinators"] == 1
+        native.RuntimeOptions()
+        assert not any(collection_state(references).values())
         emit("RETAINED")
         threading.Event().wait()
     else:
+        if scenario == "callbacks-late":
+            runtime = None
         hooks.release("blocking-provider")
-        deadline = time.monotonic() + 2
-        while True:
-            try:
-                runtime.shutdown(30_000)
-                break
-            except TimeoutError:
-                assert time.monotonic() < deadline
-                time.sleep(0.001)
+        deadline = time.perf_counter_ns() + 2_000_000_000
+        if scenario == "callbacks-late":
+            collected = settle_deferred_references(references, deadline)
+            assert all(collected.values()), collected
+        else:
+            while True:
+                try:
+                    runtime.shutdown(30_000)
+                    break
+                except TimeoutError:
+                    assert time.perf_counter_ns() < deadline
+                    time.sleep(0.001)
+        assert time.perf_counter_ns() < deadline
         state = json.loads(hooks.snapshot())
         assert state["active"] == 0
         assert state["cleanupActive"] == 0
         assert state["started"] == state["completed"]
         assert state["coordinators"] == 1
         assert state["forceRequests"] == 1
-        try:
-            runtime.start()
-            raise AssertionError("timed-out runtime restarted")
-        except RuntimeError as error:
-            assert "lifecycle_terminal" in str(error)
+        if runtime is not None:
+            try:
+                runtime.start()
+                raise AssertionError("timed-out runtime restarted")
+            except RuntimeError as error:
+                assert "lifecycle_terminal" in str(error)
         emit("RECLAIMED")
 
 

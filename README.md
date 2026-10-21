@@ -46,6 +46,9 @@ additional managed foreign-retirement barrier. Independently owned provider/Clie
 resources have their own lifetime. See the
 [lifecycle guide](docs/user-guide.md#runtime-lifecycle) for validation and an
 executable early-drain/repeated-stop example.
+Proven cleanup releases obsolete native activity-callback ownership, even after a
+quiescent failure or late completion, while retaining terminal outcomes and the
+first budgets. Unproven cleanup never authorizes callback release.
 
 These unreleased changes require the corresponding core lifecycle release before
 distribution; a temporary local Cargo override is development evidence, not a

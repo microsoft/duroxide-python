@@ -26,10 +26,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   barrier or own detached application work. The matching published core dependency
   is a separate release prerequisite; local development overrides are not distributable.
 
+### Fixed
+
+- Release obsolete native activity-callback ownership after proven cleanup,
+  including quiescent failures and late completion without another shutdown call.
+  This breaks otherwise opaque bound-method/self-capturing callback cycles while
+  preserving first budgets, terminal outcomes and incomplete/owner-lost retention.
+  Independent clients/providers and the global orchestration-handler map are unchanged.
+
 ### Tests
 
 - SQLite-only real-wrapper lifecycle coverage, feature-gated provider/fault controls,
   ordered race repetitions, isolated held-provider probes, and production-export checks.
+- Activity-only collection controls, failed-startup metrics, rejected-registration
+  atomicity and low-level driver preconditions. Subprocess failures retain bounded
+  diagnostics; transport watchdogs are separate from unchanged shutdown timing
+  limits measured with high-resolution test clocks on Windows.
 
 ## [0.2.1] - 2026-10-12
 

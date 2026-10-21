@@ -437,16 +437,18 @@ impl PyRuntime {
     fn shutdown(&mut self, py: Python<'_>, timeout_ms: Option<i64>) -> PyResult<()> {
         let (grace_deadline, total_deadline) = shutdown_deadlines(timeout_ms)?;
         if self.stop.is_none() {
-            if let Some(rt) = &self.inner {
-                rt.request_shutdown();
+            if let Some(runtime) = &self.inner {
+                runtime.request_shutdown();
                 let (completed, completion) = watch::channel(None);
-                let runtime = rt.clone();
-                TOKIO_RT.spawn(async move {
-                    completed.send_replace(Some(runtime.shutdown_until(grace_deadline).await));
-                });
+                let owner = ShutdownOwner {
+                    runtime: self.inner.take(),
+                };
                 self.stop = Some(ShutdownOperation {
                     completion,
                     total_deadline,
+                });
+                TOKIO_RT.spawn(async move {
+                    completed.send_replace(Some(owner.shutdown_until(grace_deadline).await));
                 });
             }
         }
@@ -481,6 +483,44 @@ impl PyRuntime {
 
 fn start_error(error: runtime::RuntimeStartError) -> PyErr {
     PyRuntimeError::new_err(format!("lifecycle_start_failed: {error}"))
+}
+
+struct ShutdownOwner {
+    runtime: Option<Arc<runtime::Runtime>>,
+}
+
+impl ShutdownOwner {
+    async fn shutdown_until(
+        mut self,
+        grace_deadline: Instant,
+    ) -> Result<runtime::ShutdownOutcome, runtime::RuntimeShutdownError> {
+        let result = self
+            .runtime
+            .as_ref()
+            .unwrap()
+            .clone()
+            .shutdown_until(grace_deadline)
+            .await;
+        let quiescent = match &result {
+            Ok(_) => true,
+            Err(error) => error.is_quiescent(),
+        };
+        if quiescent {
+            // PyO3 defers off-GIL reference decrements until the next GIL entry.
+            self.runtime = None;
+        }
+        result
+    }
+}
+
+impl Drop for ShutdownOwner {
+    fn drop(&mut self) {
+        if let Some(runtime) = self.runtime.take() {
+            // Losing the owner, including an unpolled/aborted task, is not
+            // cleanup proof. Retain the callback-bearing core in that case.
+            std::mem::forget(runtime);
+        }
+    }
 }
 
 #[derive(Clone)]

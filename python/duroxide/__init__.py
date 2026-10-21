@@ -562,13 +562,15 @@ class Runtime:
         calls retain the original deadlines and observe real completion/errors.
         TimeoutError leaves cleanup owned and requires application/supervisor
         process termination. Startup/operational failures raise RuntimeError.
+        RuntimeError alone does not prove cleanup: loss of the native shutdown
+        owner also requires process termination because quiescence is unproven.
         Durations must be nonnegative integers in the native deadline range.
         Do not overlap lifecycle/registration calls on this instance.
         """
         self._native.shutdown(timeout_ms)
 
     def metrics_snapshot(self):
-        """Get a snapshot of runtime metrics."""
+        """Get runtime metrics, or None after accepted startup failure or stop."""
         return self._native.metrics_snapshot()
 
 

@@ -303,12 +303,19 @@ on success but observes actual core retirement within supplied grace plus
 force rather than proving immediate quiescence. The first valid stop fixes the
 deadlines; repeated calls cannot obtain a new budget.
 
-The wrapper retains the prepared core Arc before awaiting fallible startup and
-after stop, startup failure, or timeout. The adapter retains one native cleanup
-future independently of bounded callers. Upstream tracking includes native task
-destruction; provider futures can be canceled under the provider's atomic
-acknowledgement and recovery contract. Repeated stop
-therefore observes actual completion/errors rather than an empty wrapper.
+The wrapper retains the prepared core Arc before awaiting fallible startup.
+The first valid stop transfers that callback-bearing core to one independently
+owned native cleanup future. The wrapper keeps the first deadline and completion
+record, not an obsolete callback registry. Proven quiescence releases the core
+and its activity callbacks, including quiescent failures and late completion with
+no further shutdown observation. PyO3 handles deferred off-GIL decrefs at the
+next GIL entry. A timeout does not cancel the cleanup owner; losing that owner or
+receiving an unproven result retains the core rather than releasing it.
+Upstream tracking includes native task destruction; provider futures can be
+canceled under the provider's atomic acknowledgement and recovery contract.
+Repeated stop therefore observes the retained actual completion/errors rather
+than succeeding on an empty wrapper. This does not clear the pre-existing global
+orchestration-handler map or dispose independently owned clients/providers.
 Pre-start stop is terminal; later start/registration reject and metrics are
 unavailable after stop/startup failure. Serialize lifecycle/registration calls
 on the same instance, including calls from threads while the GIL is released.
