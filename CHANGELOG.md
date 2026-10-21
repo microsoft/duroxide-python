@@ -43,6 +43,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   diagnostics; transport watchdogs are separate from unchanged shutdown timing
   limits measured with high-resolution test clocks on Windows.
 
+## [0.2.2] - 2026-10-21
+
+### Changed
+
+- Bumped `duroxide-pg` from `0.1.36` to `0.1.37`.
+
 ## [0.2.1] - 2026-10-12
 
 ### Changed
