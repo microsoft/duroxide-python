@@ -551,21 +551,22 @@ class Runtime:
     def start(self):
         """Start once and return after startup.
 
-        Do not overlap lifecycle/registration calls on this instance.
+        Do not overlap lifecycle or registration calls on this instance.
         """
         self._native.start()
 
     def shutdown(self, timeout_ms: int = None):
         """Stop permanently, even before start.
 
-        Grace defaults to 1000 ms; total waiting is grace plus 5000 ms. Repeated
-        calls retain the original deadlines and observe real completion/errors.
-        TimeoutError leaves cleanup owned and requires application/supervisor
-        process termination. Startup/operational failures raise RuntimeError.
-        RuntimeError alone does not prove cleanup: loss of the native shutdown
-        owner also requires process termination because quiescence is unproven.
+        Grace defaults to 1000 ms. Total waiting is grace plus 5000 ms.
+        Repeated calls keep the original deadlines and observe actual completion or errors.
+        TimeoutError leaves cleanup owned.
+        The application or supervisor must then terminate the process.
+        Startup and operational failures raise RuntimeError.
+        RuntimeError alone does not prove that cleanup ended.
+        Loss of the native shutdown owner also requires process termination because cleanup is unproven.
         Durations must be nonnegative integers in the native deadline range.
-        Do not overlap lifecycle/registration calls on this instance.
+        Do not overlap lifecycle or registration calls on this instance.
         """
         self._native.shutdown(timeout_ms)
 

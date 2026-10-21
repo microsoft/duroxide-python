@@ -47,56 +47,65 @@ runtime.shutdown()
 
 ## Runtime Lifecycle
 
-This section requires the **unreleased** adapter and matching core lifecycle;
-published packages and temporary local core overrides are not release evidence.
+This section requires the **unreleased** adapter and a matching core lifecycle build.
+Current published packages and temporary local core overrides do not prove release readiness.
 
-Register handlers before the first `runtime.start()`. Startup returns after
-activation, not after shutdown, and failures raise `RuntimeError`.
-Registry/preparation failures, including invalid or descending versions, become
-ordinary `RuntimeError` values with `lifecycle_start_failed`, retained by subsequent
-shutdown calls. Version ordering and duplicate-registration policy are unchanged.
-Adapter error messages do not include panic payloads; this does not suppress
-Rust's separate process-wide panic-hook output.
+Register handlers before the first `runtime.start()`.
+Startup returns after activation, not after shutdown. Failures raise `RuntimeError`.
+Registry and preparation failures become ordinary `RuntimeError` values with the `lifecycle_start_failed` category.
+These include invalid or descending versions.
+Subsequent shutdown calls retain those startup errors.
+Version ordering and duplicate-registration policy do not change.
+Adapter error messages exclude panic payloads.
+This does not suppress Rust's separate process-wide panic-hook output.
 
-The normal `Runtime` constructor installs the SDK's generator drivers. The
-underlying, unconfigured `PyRuntime` constructor is an internal setup boundary:
-a missing-driver `lifecycle_start_failed` rejects before accepting startup, so it
-does not retain an activation failure. Installing the real SDK drivers can still
-allow the first start; choosing a no-work shutdown instead succeeds and makes the
-instance terminal. This distinction does not change retained failures after
-startup has been accepted or add a supported low-level setup API.
+The normal `Runtime` constructor installs the SDK's generator drivers.
+The underlying, unconfigured `PyRuntime` constructor is an internal setup boundary.
+A missing-driver `lifecycle_start_failed` rejects before startup acceptance.
+It therefore does not retain an activation failure.
+Installing the real SDK drivers can still allow the first start.
+Alternatively, a no-work shutdown succeeds and permanently prevents activation.
+This distinction does not change retained failures after startup acceptance.
+It does not add a supported low-level setup API.
 
-`runtime.shutdown()` uses one second of grace plus five seconds of cleanup
-headroom. `shutdown(0)` requests immediate force, still with a five-second total.
-The first stop fixes the deadlines; repeating it never grants a new budget.
-Success remains `None`. A typed timeout raises `TimeoutError`; operational failures
-raise `RuntimeError`. Non-integer, negative, overflowing, or unsupported native
-durations reject without consuming registrations or accepting stop.
-Unsupported/negative durations raise `ValueError`, non-integer extraction raises
-`TypeError`, and values outside signed 64-bit extraction raise `OverflowError`.
-The interval ceiling for grace is `((2**64 - 1) // 1_000_000) - 5000` milliseconds,
-also subject to the platform's monotonic clock range. Validation still applies
-before a no-work or repeated stop; `None` selects the omitted grace.
+`runtime.shutdown()` uses one second of grace plus five seconds of total headroom.
+`shutdown(0)` requests immediate force, with a five-second total.
+The first stop fixes the deadlines. Repeated calls never receive a new budget.
+Success remains `None`. A timeout raises `TimeoutError`.
+Operational failures raise `RuntimeError`.
 
-Stopping before start is terminal. Do not overlap lifecycle or registration calls
-on the same instance, including across threads while the GIL is released. Metrics
-return `None` after accepted startup failure or stop. Repeated shutdown can observe
-real late completion, but a timeout permanently rules out reuse and still requires
-application/supervisor process termination. Cleanup remains owned; the SDK never
-exits the process itself.
-This contract covers core-owned execution, not arbitrary unregistered Python work
-or the .NET adapter's additional foreign-continuation barrier. Independent
-provider-owned background work has a separate lifetime.
-The adapter retains one native cleanup future independently of these bounded
-waits. Native Rust shutdown itself awaits cleanup without a total limit. Provider
-futures can be canceled under the provider's atomic acknowledgement and peek-lock
-recovery contract.
-Proven cleanup releases obsolete native activity-callback ownership, including
-quiescent errors and actual late completion without another shutdown call. The
-terminal result and original budgets remain available independently of those
-callbacks. Unproven cleanup still retains ownership. This release does not clear
-the global orchestration-handler map, dispose independently owned providers or
-clients, or retract a prior timeout's process-termination obligation.
+Non-integer, negative, overflowing, or unsupported native durations fail validation.
+Validation failure does not consume registrations or accept stop.
+Unsupported or negative durations raise `ValueError`.
+Non-integer extraction raises `TypeError`.
+Values outside signed 64-bit extraction raise `OverflowError`.
+The maximum grace interval is `((2**64 - 1) // 1_000_000) - 5000` milliseconds.
+It must also fit the platform's monotonic clock range.
+Validation runs before a no-work stop and before repeated calls.
+`None` selects the omitted grace.
+
+Stopping before start is terminal.
+Do not overlap lifecycle or registration calls on the same instance.
+This includes calls from other threads while the GIL is released.
+Metrics return `None` after accepted startup failure or stop.
+Repeated shutdown can observe actual late completion, but a timeout permanently prevents reuse.
+The application or supervisor must still terminate the process.
+The SDK retains cleanup and never exits the process itself.
+
+This contract covers core-owned execution, not arbitrary unregistered Python work.
+It does not add the .NET adapter's additional foreign-continuation barrier.
+Independent provider-owned background work has a separate lifetime.
+The adapter retains one native cleanup future independently of bounded caller waits.
+Native Rust shutdown waits for cleanup without a total limit.
+Provider futures can be canceled under the provider's atomic acknowledgment and peek-lock recovery contract.
+
+**Quiescence** means that tracked core execution and cleanup have ended.
+Proven cleanup releases obsolete native activity-callback ownership.
+This includes quiescent errors and actual late completion without another shutdown call.
+The terminal result and original budgets remain available independently of those callbacks.
+Unproven cleanup retains ownership.
+Release does not clear the global orchestration-handler map or dispose independent providers or Clients.
+It never removes a prior timeout's process-termination requirement.
 
 This complete example has no admitted work and can finish before grace:
 
@@ -111,14 +120,16 @@ runtime.shutdown(0)        # Observes the same actual completion, not a new stop
 print(runtime.metrics_snapshot())  # None: stopped worker, not active metrics
 ```
 
-A finite grace cannot promise bounded forced cleanup. Do not swallow
-`TimeoutError` and continue using the worker, free foreign callback state, or
-assume caught `RuntimeError` proves quiescence. Surface failure to the application
-or supervisor responsible for terminating the process.
-In particular, `lifecycle_shutdown_failed` covers both a core-reported failure
-whose cleanup completed and loss of the shutdown owner with unproven quiescence.
-The category or exception type alone is not cleanup proof; the latter outcome
-still requires process termination and retained ownership.
+A finite grace does not guarantee bounded forced cleanup.
+Do not catch `TimeoutError` and continue using the worker or free foreign callback state.
+Do not assume that a caught `RuntimeError` proves quiescence.
+Report the failure to the application or supervisor responsible for process termination.
+
+The `lifecycle_shutdown_failed` category covers both a core failure after cleanup and loss of the shutdown owner without proven cleanup.
+The category or exception type alone does not prove cleanup.
+Owner loss still requires retained ownership and process termination.
+At the first shutdown call, give the supervisor more than grace plus 5000 ms.
+Leave additional time for other shutdown work and process termination.
 
 ## Orchestration Patterns
 

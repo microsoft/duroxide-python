@@ -9,39 +9,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Use fallible core startup and bounded shutdown while preserving successful `None`
-  returns. Shutdown uses the supplied grace plus five seconds, with a one-second
-  omitted grace, and idle workers can finish early. Invalid durations reject
-  before changing ownership, even for no-work/repeated calls. Repeated calls
-  retain the original operation and errors instead of succeeding on an empty
-  runtime; no call renews the first deadlines. Pre-core registry/preparation
-  failures become ordinary retained startup errors without changing registration
-  policy.
-- Pre-start shutdown is terminal; start/registration after activation or stop is
-  rejected. Post-stop metrics remain unavailable.
-- Shutdown timeout raises `TimeoutError`, while startup/operational failures use
-  `RuntimeError`. Incomplete cleanup requires application/supervisor process
-  termination even after genuine late cleanup. Finite grace does not guarantee
-  bounded forced cleanup. This narrow adapter does not add .NET's foreign-continuation
-  barrier or own detached application work. The matching published core dependency
-  is a separate release prerequisite; local development overrides are not distributable.
+- Use fallible core startup and bounded shutdown waits while preserving successful `None` returns.
+  Total waiting is the supplied grace plus five seconds.
+  Omitted grace is one second. Idle workers can finish early.
+  Invalid durations fail before ownership changes, including for no-work and repeated calls.
+  Repeated calls retain the original operation, errors, and deadlines.
+  They do not report success merely because the wrapper transferred its core.
+  Registry and preparation failures become ordinary retained startup errors.
+  Registration policy does not change.
+- Pre-start shutdown is terminal.
+  Start and registration calls fail after activation or stop.
+  Post-stop metrics remain unavailable.
+- Shutdown timeout raises `TimeoutError`. Startup and operational failures raise `RuntimeError`.
+  Incomplete cleanup requires application- or supervisor-owned process termination, even after actual late cleanup.
+  Finite grace does not guarantee bounded forced cleanup.
+  This adapter does not add .NET's foreign-continuation barrier or own detached application work.
+  Release requires a matching published core dependency.
+  Do not distribute local development overrides.
 
 ### Fixed
 
 - Release obsolete native activity-callback ownership after proven cleanup,
   including quiescent failures and late completion without another shutdown call.
-  This breaks otherwise opaque bound-method/self-capturing callback cycles while
-  preserving first budgets, terminal outcomes and incomplete/owner-lost retention.
-  Independent clients/providers and the global orchestration-handler map are unchanged.
+  This breaks bound-method and self-capturing callback cycles that Python cannot otherwise collect.
+  The first budgets and terminal outcomes remain available.
+  Incomplete cleanup or a lost cleanup owner still retains ownership.
+  Independent Clients, providers, and the global orchestration-handler map do not change.
 
 ### Tests
 
-- SQLite-only real-wrapper lifecycle coverage, feature-gated provider/fault controls,
-  ordered race repetitions, isolated held-provider probes, and production-export checks.
+- Add SQLite-only lifecycle coverage through the real wrapper.
+  Cases include feature-gated provider and fault controls, repeated ordered races,
+  isolated held-provider probes, and production-export checks.
 - Activity-only collection controls, failed-startup metrics, rejected-registration
-  atomicity and low-level driver preconditions. Subprocess failures retain bounded
-  diagnostics; transport watchdogs are separate from unchanged shutdown timing
-  limits measured with high-resolution test clocks on Windows.
+  atomicity, and low-level driver preconditions.
+  Subprocess failures retain bounded diagnostics.
+  Transport watchdogs are separate from the unchanged shutdown timing limits.
+  Windows tests measure those limits with high-resolution clocks.
 
 ## [0.2.2] - 2026-10-21
 
