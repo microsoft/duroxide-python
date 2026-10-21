@@ -6,6 +6,8 @@ mod handlers;
 mod pg_provider;
 mod provider;
 mod runtime;
+#[cfg(feature = "test-hooks")]
+mod test_hooks;
 mod types;
 
 use pyo3::prelude::*;
@@ -173,6 +175,11 @@ fn init_tracing(
 
 #[pymodule]
 fn _duroxide(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    #[cfg(feature = "test-hooks")]
+    {
+        m.add_function(wrap_pyfunction!(test_hooks::_lifecycle_test_hooks, m)?)?;
+        m.add_class::<test_hooks::LifecycleTestHooks>()?;
+    }
     m.add_function(wrap_pyfunction!(activity_trace_log, m)?)?;
     m.add_function(wrap_pyfunction!(orchestration_trace_log, m)?)?;
     m.add_function(wrap_pyfunction!(activity_is_cancelled, m)?)?;

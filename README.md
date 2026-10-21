@@ -24,6 +24,40 @@ Write durable workflows as Python generators. The Rust runtime handles replay, p
 - **Activity client access** — `ctx.get_client()` lets activities start new orchestrations
 - **Runtime metrics** — `metrics_snapshot()` for orchestration/activity counters
 
+## Runtime lifecycle (unreleased)
+
+`runtime.start()` returns after startup. Core startup errors raise `RuntimeError`.
+`runtime.shutdown(timeout_ms)` still returns `None` on success.
+The argument is a nonnegative integer grace period in milliseconds.
+It must fit the native monotonic deadline range.
+Omitted grace is 1000 ms. Total waiting is grace plus 5000 ms.
+Idle work can finish early.
+
+The first stop fixes both deadlines. Repeated calls observe the same operation.
+They can report timeout, operational errors, or actual late completion.
+Shutdown before start is terminal. Later start or registration calls fail.
+Metrics remain unavailable after stop.
+Serialize lifecycle and registration calls on each runtime.
+
+Timeout raises `TimeoutError`. Startup and operational failures raise `RuntimeError`.
+A timeout means cleanup is still owned and incomplete.
+Do not restart the worker.
+The application or supervisor must terminate the process, even if a later observation reports completion.
+The SDK does not terminate the process.
+
+This adapter does not track arbitrary Python work.
+It does not add the .NET SDK's additional managed foreign-retirement barrier.
+Independent provider and Client resources have their own lifetime. See the
+[lifecycle guide](docs/user-guide.md#runtime-lifecycle) for validation and an
+executable early-drain/repeated-stop example.
+**Quiescence** means that tracked core execution and cleanup have ended.
+Proven cleanup releases obsolete native activity-callback ownership, including after quiescent failures and late completion.
+Terminal outcomes and the original budgets remain available.
+Unproven cleanup never permits callback release.
+
+These unreleased changes require a compatible core lifecycle release before distribution.
+A temporary local Cargo override provides development evidence, not a release dependency pin.
+
 ## Installation
 
 ```bash

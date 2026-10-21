@@ -297,7 +297,55 @@ File-based SQLite can hit "database is locked" errors under concurrent orchestra
 
 ### Runtime Shutdown
 
-`Runtime.shutdown(timeout_ms)` returns as soon as all runtime work has stopped. `timeout_ms` (default 1000) is the longest it waits for in-flight work before cancelling the rest; it is not a fixed delay.
+In the unreleased lifecycle, `Runtime.shutdown(timeout_ms)` still returns `None` on success.
+It waits for actual core retirement within supplied grace plus 5000 ms.
+Omitted grace is 1000 ms. Idle execution can finish early.
+Zero requests immediate force. Force does not prove that cleanup ended.
+The first valid stop fixes both deadlines.
+Repeated calls cannot obtain a new budget.
+
+The wrapper retains the prepared core Arc before it awaits fallible startup.
+The first valid stop transfers that core and its callbacks to one independently owned native cleanup future.
+The wrapper keeps the first deadline and completion record, not an obsolete callback registry.
+
+```mermaid
+flowchart TD
+    Stop["First valid stop: fix grace and total"] --> Cleanup["Keep one native cleanup operation"]
+    Stop --> Wait["Wait within the original total"]
+    Cleanup -->|Cleanup proven| Release["Release obsolete core and activity-callback ownership"]
+    Cleanup -->|Cleanup unproven| Retain["Retain ownership"]
+    Wait -->|Completion published| Result["Return None or raise an operational error"]
+    Wait -->|Total expires first| Timeout["Raise TimeoutError; keep cleanup owned"]
+    Timeout --> Terminate["Application or supervisor must terminate the process"]
+```
+
+The caller's wait and cleanup have separate lifetimes.
+Proven cleanup releases the core and its activity callbacks.
+This includes quiescent failures and late completion without another shutdown call.
+PyO3 defers off-GIL reference-count decrements until the next GIL entry.
+A timeout does not cancel the cleanup owner.
+Losing that owner or receiving an unproven result retains the core instead of releasing it.
+
+Upstream tracking includes native task destruction.
+Provider futures can be canceled under the provider's atomic acknowledgment and recovery contract.
+Repeated stop observes the retained completion or error.
+It does not report success merely because the wrapper transferred its core.
+Release does not clear the global orchestration-handler map or dispose independent Clients or providers.
+
+A valid pre-start stop is terminal.
+Later registration and start calls fail.
+Metrics remain unavailable after stop or accepted startup failure.
+Serialize lifecycle and registration calls on the same instance.
+This includes calls from other threads while the GIL is released.
+
+`TimeoutError` means that ordinary waiting ended while cleanup remains owned.
+The application or supervisor must terminate the process, even after actual late completion.
+Operational and startup failures raise `RuntimeError`; they do not report successful retirement.
+The SDK never kills the process.
+This adapter does not add the .NET foreign-continuation barrier or track arbitrary Python work.
+Independent Clients, providers, and provider token-refresh work keep their separate lifetimes.
+See the [lifecycle guide](user-guide.md#runtime-lifecycle) for validation and
+release prerequisites.
 
 ### Platform-Specific Binary
 

@@ -505,13 +505,13 @@ class Runtime:
             runtime.register_orchestration("my_orch", my_fn)
         """
         if fn is not None:
-            _orchestration_functions[name] = fn
             self._native.register_orchestration(name)
+            _orchestration_functions[name] = fn
             return fn
 
         def decorator(func):
-            _orchestration_functions[name] = func
             self._native.register_orchestration(name)
+            _orchestration_functions[name] = func
             return func
 
         return decorator
@@ -526,14 +526,14 @@ class Runtime:
         """Register a versioned orchestration generator function. Can be used as a decorator."""
         if fn is not None:
             key = f"{name}@{version}"
-            _orchestration_functions[key] = fn
             self._native.register_orchestration_versioned(name, version)
+            _orchestration_functions[key] = fn
             return fn
 
         def decorator(func):
             key = f"{name}@{version}"
-            _orchestration_functions[key] = func
             self._native.register_orchestration_versioned(name, version)
+            _orchestration_functions[key] = func
             return func
 
         return decorator
@@ -549,15 +549,29 @@ class Runtime:
         return self.register_orchestration_versioned(name, version, fn)
 
     def start(self):
-        """Start the runtime. Blocks until shutdown is called."""
+        """Start once and return after startup.
+
+        Do not overlap lifecycle or registration calls on this instance.
+        """
         self._native.start()
 
     def shutdown(self, timeout_ms: int = None):
-        """Shutdown the runtime gracefully."""
+        """Stop permanently, even before start.
+
+        Grace defaults to 1000 ms. Total waiting is grace plus 5000 ms.
+        Repeated calls keep the original deadlines and observe actual completion or errors.
+        TimeoutError leaves cleanup owned.
+        The application or supervisor must then terminate the process.
+        Startup and operational failures raise RuntimeError.
+        RuntimeError alone does not prove that cleanup ended.
+        Loss of the native shutdown owner also requires process termination because cleanup is unproven.
+        Durations must be nonnegative integers in the native deadline range.
+        Do not overlap lifecycle or registration calls on this instance.
+        """
         self._native.shutdown(timeout_ms)
 
     def metrics_snapshot(self):
-        """Get a snapshot of runtime metrics."""
+        """Get runtime metrics, or None after accepted startup failure or stop."""
         return self._native.metrics_snapshot()
 
 

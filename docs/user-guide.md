@@ -45,6 +45,92 @@ print(result.output)  # "Hello, World!"
 runtime.shutdown()
 ```
 
+## Runtime Lifecycle
+
+This section requires the **unreleased** adapter and a matching core lifecycle build.
+Current published packages and temporary local core overrides do not prove release readiness.
+
+Register handlers before the first `runtime.start()`.
+Startup returns after activation, not after shutdown. Failures raise `RuntimeError`.
+Registry and preparation failures become ordinary `RuntimeError` values with the `lifecycle_start_failed` category.
+These include invalid or descending versions.
+Subsequent shutdown calls retain those startup errors.
+Version ordering and duplicate-registration policy do not change.
+Adapter error messages exclude panic payloads.
+This does not suppress Rust's separate process-wide panic-hook output.
+
+The normal `Runtime` constructor installs the SDK's generator drivers.
+The underlying, unconfigured `PyRuntime` constructor is an internal setup boundary.
+A missing-driver `lifecycle_start_failed` rejects before startup acceptance.
+It therefore does not retain an activation failure.
+Installing the real SDK drivers can still allow the first start.
+Alternatively, a no-work shutdown succeeds and permanently prevents activation.
+This distinction does not change retained failures after startup acceptance.
+It does not add a supported low-level setup API.
+
+`runtime.shutdown()` uses one second of grace plus five seconds of total headroom.
+`shutdown(0)` requests immediate force, with a five-second total.
+The first stop fixes the deadlines. Repeated calls never receive a new budget.
+Success remains `None`. A timeout raises `TimeoutError`.
+Operational failures raise `RuntimeError`.
+
+Non-integer, negative, overflowing, or unsupported native durations fail validation.
+Validation failure does not consume registrations or accept stop.
+Unsupported or negative durations raise `ValueError`.
+Non-integer extraction raises `TypeError`.
+Values outside signed 64-bit extraction raise `OverflowError`.
+The maximum grace interval is `((2**64 - 1) // 1_000_000) - 5000` milliseconds.
+It must also fit the platform's monotonic clock range.
+Validation runs before a no-work stop and before repeated calls.
+`None` selects the omitted grace.
+
+Stopping before start is terminal.
+Do not overlap lifecycle or registration calls on the same instance.
+This includes calls from other threads while the GIL is released.
+Metrics return `None` after accepted startup failure or stop.
+Repeated shutdown can observe actual late completion, but a timeout permanently prevents reuse.
+The application or supervisor must still terminate the process.
+The SDK retains cleanup and never exits the process itself.
+
+This contract covers core-owned execution, not arbitrary unregistered Python work.
+It does not add the .NET adapter's additional foreign-continuation barrier.
+Independent provider-owned background work has a separate lifetime.
+The adapter retains one native cleanup future independently of bounded caller waits.
+Native Rust shutdown waits for cleanup without a total limit.
+Provider futures can be canceled under the provider's atomic acknowledgment and peek-lock recovery contract.
+
+**Quiescence** means that tracked core execution and cleanup have ended.
+Proven cleanup releases obsolete native activity-callback ownership.
+This includes quiescent errors and actual late completion without another shutdown call.
+The terminal result and original budgets remain available independently of those callbacks.
+Unproven cleanup retains ownership.
+Release does not clear the global orchestration-handler map or dispose independent providers or Clients.
+It never removes a prior timeout's process-termination requirement.
+
+This complete example has no admitted work and can finish before grace:
+
+```python
+from duroxide import Runtime, SqliteProvider
+
+provider = SqliteProvider.in_memory()
+runtime = Runtime(provider)
+runtime.start()
+runtime.shutdown()         # 1000 ms grace, 6000 ms total; can finish early
+runtime.shutdown(0)        # Observes the same actual completion, not a new stop
+print(runtime.metrics_snapshot())  # None: stopped worker, not active metrics
+```
+
+A finite grace does not guarantee bounded forced cleanup.
+Do not catch `TimeoutError` and continue using the worker or free foreign callback state.
+Do not assume that a caught `RuntimeError` proves quiescence.
+Report the failure to the application or supervisor responsible for process termination.
+
+The `lifecycle_shutdown_failed` category covers both a core failure after cleanup and loss of the shutdown owner without proven cleanup.
+The category or exception type alone does not prove cleanup.
+Owner loss still requires retained ownership and process termination.
+At the first shutdown call, give the supervisor more than grace plus 5000 ms.
+Leave additional time for other shutdown work and process termination.
+
 ## Orchestration Patterns
 
 ### Sequential Steps
