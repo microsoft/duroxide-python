@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add string-valued `RuntimeStopStatus` and owned, metadata-only
+  `RuntimeStopObserver` through `Runtime.stop_observer()`. Synchronous change
+  waits release the GIL, support finite timeout and Python signals, and allow
+  terminal cross-thread close. Final state arrives before normal source end.
+  Observation does not retain worker callbacks or change shutdown ownership,
+  deadlines, and application policy.
+
 ### Changed
 
 - Use fallible core startup and bounded shutdown waits while preserving successful `None` returns.

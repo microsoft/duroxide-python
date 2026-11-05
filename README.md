@@ -58,6 +58,28 @@ Unproven cleanup never permits callback release.
 These unreleased changes require a compatible core lifecycle release before distribution.
 A temporary local Cargo override provides development evidence, not a release dependency pin.
 
+### Passive stop observation
+
+`runtime.stop_observer()` creates an owned, metadata-only `RuntimeStopObserver`.
+Read its `state` before calling `wait_for_change(last_seen, timeout_ms=None)`.
+`RuntimeStopStatus` has string-valued `NOT_REQUESTED`, `REQUESTED`, and sticky
+`FAULTED` members. They describe recorded stop/fault state, not readiness or
+completed cleanup. A late observer can already see a fault.
+
+Use one pending wait per observer. A finite timeout raises `TimeoutError`;
+`KeyboardInterrupt` propagates. Either permits retry without stopping the worker.
+`close()` can run from another thread and is terminal and idempotent.
+Pending and later operations fail after close. Normal source end instead
+returns an unseen final state before `None`.
+
+The synchronous wait releases the GIL and checks Python signals.
+It still blocks its calling thread. Do not run it on the asyncio event-loop
+thread or assume that canceling `asyncio.to_thread` cancels the underlying wait.
+Use a finite timeout or explicitly close the observer.
+Observation retains no worker callback ownership and changes no shutdown
+deadlines or termination requirements. See the
+[observer example](docs/user-guide.md#passive-stop-observation).
+
 ## Installation
 
 ```bash

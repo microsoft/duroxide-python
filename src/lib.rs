@@ -6,6 +6,7 @@ mod handlers;
 mod pg_provider;
 mod provider;
 mod runtime;
+mod stop_observation;
 #[cfg(feature = "test-hooks")]
 mod test_hooks;
 mod types;
@@ -202,6 +203,8 @@ fn _duroxide(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<pg_provider::PyPostgresEntraOptions>()?;
     m.add_class::<client::PyClient>()?;
     m.add_class::<runtime::PyRuntime>()?;
+    m.add_class::<stop_observation::PyRuntimeStopSource>()?;
+    m.add_class::<stop_observation::PyRuntimeStopObserver>()?;
     m.add_class::<runtime::PyRuntimeOptions>()?;
     m.add_class::<types::PyOrchestrationStatus>()?;
     m.add_class::<types::PySystemMetrics>()?;

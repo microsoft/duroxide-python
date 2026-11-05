@@ -14,6 +14,7 @@ use duroxide::runtime::{self, OrchestrationHandler, OrchestrationRegistry};
 use crate::handlers::{PyActivityHandler, PyOrchestrationHandler};
 use crate::pg_provider::PyPostgresProvider;
 use crate::provider::PySqliteProvider;
+use crate::stop_observation::{PyRuntimeStopSource, StopSource};
 use crate::types::PyMetricsSnapshot;
 
 /// Global tokio runtime shared by all Python-facing blocking methods.
@@ -159,6 +160,7 @@ pub struct PyRuntime {
     shutdown_requested: bool,
     stop: Option<ShutdownOperation>,
     startup_error: Option<runtime::RuntimeStartError>,
+    pub(crate) stop_source: StopSource,
     #[cfg(feature = "test-hooks")]
     pub(crate) test_hooks: runtime::test_hooks::LifecycleHooks,
 }
@@ -182,6 +184,7 @@ impl PyRuntime {
             shutdown_requested: false,
             stop: None,
             startup_error: None,
+            stop_source: StopSource::new(),
             #[cfg(feature = "test-hooks")]
             test_hooks: runtime::test_hooks::LifecycleHooks::default(),
         }
@@ -204,9 +207,14 @@ impl PyRuntime {
             shutdown_requested: false,
             stop: None,
             startup_error: None,
+            stop_source: StopSource::new(),
             #[cfg(feature = "test-hooks")]
             test_hooks: runtime::test_hooks::LifecycleHooks::default(),
         }
+    }
+
+    fn stop_source(&self) -> PyRuntimeStopSource {
+        self.stop_source.subscribe()
     }
 
     /// Set the generator driver functions (called once from Python before registering orchestrations).
@@ -378,10 +386,7 @@ impl PyRuntime {
         let rt = match prepared {
             Ok(result) => result,
             Err(payload) => {
-                // Payload destruction must not reintroduce a panic across the language boundary.
-                if let Err(secondary) = catch_unwind(AssertUnwindSafe(|| drop(payload))) {
-                    std::mem::forget(secondary);
-                }
+                discard_panic_payload(payload);
                 Err(runtime::RuntimeStartError::StartupFailed)
             }
         }
@@ -389,6 +394,7 @@ impl PyRuntime {
             self.startup_error = Some(error);
             start_error(error)
         })?;
+        self.stop_source.attach(rt.stop_observer());
         self.inner = Some(rt.clone());
         #[cfg(feature = "test-hooks")]
         rt.set_lifecycle_hooks(self.test_hooks.clone())
@@ -436,6 +442,7 @@ impl PyRuntime {
     #[pyo3(signature = (timeout_ms=None))]
     fn shutdown(&mut self, py: Python<'_>, timeout_ms: Option<i64>) -> PyResult<()> {
         let (grace_deadline, total_deadline) = shutdown_deadlines(timeout_ms)?;
+        self.stop_source.requested();
         if self.stop.is_none() {
             if let Some(runtime) = &self.inner {
                 runtime.request_shutdown();
@@ -457,6 +464,7 @@ impl PyRuntime {
             py.allow_threads(|| TOKIO_RT.block_on(stop.wait()))
                 .map_err(shutdown_error)?;
         } else {
+            self.stop_source.close();
             self.activity_builders.clear();
             self.orchestration_names.clear();
             self.create_fn = None;
@@ -478,6 +486,13 @@ impl PyRuntime {
             ));
         }
         Ok(())
+    }
+}
+
+pub(crate) fn discard_panic_payload(payload: Box<dyn std::any::Any + Send>) {
+    // Payload destruction must not reintroduce a panic across the language boundary.
+    if let Err(secondary) = catch_unwind(AssertUnwindSafe(|| drop(payload))) {
+        std::mem::forget(secondary);
     }
 }
 

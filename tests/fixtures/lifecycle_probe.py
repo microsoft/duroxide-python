@@ -18,6 +18,7 @@ from lifecycle_callbacks import (
     collection_state,
     settle_deferred_references,
 )
+from lifecycle_observers import run_observer_scenario
 
 
 def emit(phase, **detail):
@@ -31,6 +32,9 @@ def emit(phase, **detail):
 
 def main():
     scenario = sys.argv[1]
+    if scenario.startswith("observer-"):
+        run_observer_scenario(scenario, emit)
+        return
     if scenario in (
         "callbacks-prestart", "callbacks-stopped", "callbacks-preparation-failed",
         "callbacks-operational-failed",

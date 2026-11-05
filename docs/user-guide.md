@@ -131,6 +131,102 @@ Owner loss still requires retained ownership and process termination.
 At the first shutdown call, give the supervisor more than grace plus 5000 ms.
 Leave additional time for other shutdown work and process termination.
 
+### Passive stop observation
+
+`runtime.stop_observer()` creates an independent `RuntimeStopObserver`.
+Do not construct the observer directly. Creating it, reading `state`, and
+waiting do not start or stop execution.
+Observation can run during native startup or shutdown, including from another
+thread. Lifecycle and registration calls themselves must still be serialized.
+
+| `RuntimeStopStatus` member | String value | Meaning |
+|----------------------------|--------------|---------|
+| `NOT_REQUESTED` | `"NotRequested"` | No stop is recorded. The worker can be unconstructed, starting, or running; this is not readiness or health. |
+| `REQUESTED` | `"Requested"` | Stop was accepted, not necessarily received by native execution or completed. |
+| `FAULTED` | `"Faulted"` | The core recorded a runtime-wide fault. It takes precedence and cannot regress. |
+
+Read the initial snapshot before waiting. A late observer can already be Faulted.
+Invalid input, pre-core validation failure, wait timeout, Python interruption,
+and observation errors do not create a runtime fault.
+
+This helper owns the observer passed to it. It reports the initial state and
+each observed change, then ends its own observation after a fault.
+Its finite per-wait timeout permits retry; it is not a total monitoring deadline.
+Pass an observer rather than the Runtime so the waiting function need not
+retain the worker:
+
+```python
+from duroxide import RuntimeStopStatus
+
+def report_stop_changes(observer):
+    try:
+        state = observer.state
+        print("Runtime stop state:", state.value)
+        while state is not RuntimeStopStatus.FAULTED:
+            try:
+                next_state = observer.wait_for_change(state, timeout_ms=1000)
+            except TimeoutError:
+                print("No stop-state change before this timeout.")
+                continue
+            if next_state is None:
+                print("Stop observation source ended; cleanup is not proved.")
+                return
+            state = next_state
+            print("Runtime stop state:", state.value)
+    except KeyboardInterrupt:
+        print("Stop observation interrupted; worker shutdown is unchanged.")
+    except RuntimeError as error:
+        if not str(error).startswith("stop_observation_closed:"):
+            raise
+        print("Stop observation was closed.")
+    finally:
+        observer.close()
+```
+
+In an application that owns a Runtime, obtain `observer = runtime.stop_observer()`
+and call `report_stop_changes(observer)` where blocking is acceptable.
+Keep the observer reference if another thread must close it.
+The application's lifecycle owner must still stop the Runtime normally.
+Unexpected observation failures propagate; do not treat them as a recorded
+runtime fault or successful cleanup.
+
+`wait_for_change` compares against the supplied last-seen state; it is not an
+event queue. Changes can coalesce. A final unseen state arrives before `None`.
+The final snapshot stays readable until local close.
+The source can remain open after worker cleanup. An unchanged REQUESTED or
+FAULTED therefore still waits; close monitoring when you no longer need it.
+
+Only one wait can be pending on an observer; overlap raises `RuntimeError` with
+`stop_observation_busy`. Use separate observers for independent readers.
+`timeout_ms=None` means no timeout. A nonnegative integer sets a timeout in
+milliseconds and must fit the native deadline range.
+Zero returns an available change or normal source end immediately; otherwise
+it raises `TimeoutError`. Timeout and interruption consume no state and permit
+retry. The helper above closes its observer when it exits.
+
+`close()` is idempotent and can run from another thread while a wait is active.
+Pending and later operations raise `RuntimeError` with `stop_observation_closed`.
+Close does not rewrite a result that already returned.
+It does not request shutdown or join cleanup or native notification final access.
+
+Native waiting releases the GIL and checks pending Python signals at bounded
+opportunities. A `KeyboardInterrupt` or an exception from a signal handler
+propagates from the wait. Signal handling and notification delivery still need
+GIL/executor progress; these are not real-time scheduling guarantees.
+The optional timeout uses one deadline; signal checks do not restart it.
+
+The API is synchronous. Do not block an asyncio event-loop thread with it.
+Canceling a task that uses `asyncio.to_thread` does not stop that thread's
+underlying wait. Use a finite wait or close the observer explicitly when ending
+the offloaded monitor. A foreground or non-daemon Python thread can still keep
+the process running.
+
+The observer and native notification tasks retain metadata, not Runtime,
+provider, or callback registry ownership. Neither state nor source end proves
+quiescence or permits release. This API does not add ownership of arbitrary
+Python work, renew first-stop budgets, remove a termination requirement, or
+select host/process policy.
+
 ## Orchestration Patterns
 
 ### Sequential Steps

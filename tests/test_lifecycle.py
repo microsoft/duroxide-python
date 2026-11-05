@@ -1,6 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
+import gc
 import hashlib
 import json
 import os
@@ -10,11 +11,12 @@ import subprocess
 import sys
 import time
 import uuid
+import weakref
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from duroxide import Client, Runtime, RuntimeOptions, SqliteProvider
+from duroxide import Client, Runtime, RuntimeOptions, RuntimeStopObserver, RuntimeStopStatus, SqliteProvider
 from duroxide import _duroxide as native
 from duroxide import _orchestration_functions
 from duroxide.driver import create_generator, next_step, dispose_generator
@@ -77,6 +79,8 @@ def test_native_provenance_and_production_exports():
         "path": str(extension),
         "sha256": hashlib.sha256(extension.read_bytes()).hexdigest(),
         "instrumented": INSTRUMENTED,
+        "pythonVersion": list(sys.version_info[:3]),
+        "executable": sys.executable,
     }))
 
 
@@ -470,3 +474,157 @@ def test_retained_completed_runtime_allows_natural_process_exit():
         capture_output=True, text=True, timeout=3, check=True,
     )
     assert "EXIT_READY" in result.stdout
+
+
+def test_stop_observer_precore_validation_and_timeout_do_not_activate_or_stop():
+    runtime, _, hooks = fixture()
+    observer = runtime.stop_observer()
+    not_requested = RuntimeStopStatus.NOT_REQUESTED
+    assert observer.state is not_requested
+    assert observer.wait_for_change(RuntimeStopStatus.FAULTED, 0) is not_requested
+    with pytest.raises(TypeError, match="Runtime.stop_observer"):
+        RuntimeStopObserver()
+    with pytest.raises(AttributeError):
+        observer.state = RuntimeStopStatus.REQUESTED
+    for value in [-1, (2**64 - 1) // 1_000_000 + 1, 2**63 - 1]:
+        with pytest.raises(ValueError, match="stop_observation_invalid_timeout"):
+            observer.wait_for_change(not_requested, value)
+    for value in [0.5, float("nan"), float("inf"), "0"]:
+        with pytest.raises(TypeError):
+            observer.wait_for_change(not_requested, value)
+    with pytest.raises(OverflowError):
+        observer.wait_for_change(not_requested, 2**63)
+    for value in ["Unknown", "", "requested"]:
+        with pytest.raises(ValueError, match="stop_observation_invalid_status"):
+            observer.wait_for_change(value, 0)
+    for value in [None, 1, False]:
+        with pytest.raises(TypeError):
+            observer.wait_for_change(value, 0)
+    for _ in range(2):
+        with pytest.raises(TimeoutError, match="stop_observation_timed_out"):
+            observer.wait_for_change(not_requested, 0)
+    assert observer.state is not_requested
+    if hooks:
+        assert json.loads(hooks.snapshot())["started"] == 0
+    observer.close()
+    observer.close()
+    with pytest.raises(RuntimeError, match="stop_observation_closed"):
+        _ = observer.state
+    with pytest.raises(RuntimeError, match="stop_observation_closed"):
+        observer.wait_for_change(not_requested)
+    runtime.register_activity("ObserverDidNotStop", lambda _context, value: value)
+    runtime.start()
+    runtime.shutdown(100)
+
+
+def test_stop_observer_precore_stop_preserves_final_state_for_independent_late_readers():
+    runtime, _, _ = fixture()
+    observer, closed = runtime.stop_observer(), runtime.stop_observer()
+    with pytest.raises(ValueError):
+        runtime.shutdown(-1)
+    assert observer.state is RuntimeStopStatus.NOT_REQUESTED
+    closed.close()
+    runtime.shutdown(0)
+    late = runtime.stop_observer()
+    for reader in (observer, late):
+        assert reader.state is RuntimeStopStatus.REQUESTED
+        assert reader.wait_for_change(RuntimeStopStatus.NOT_REQUESTED, 0) is RuntimeStopStatus.REQUESTED
+        assert reader.wait_for_change(RuntimeStopStatus.REQUESTED, 0) is None
+        assert reader.state is RuntimeStopStatus.REQUESTED
+        reader.close()
+    with pytest.raises(RuntimeError, match="lifecycle_terminal"):
+        runtime.start()
+
+
+@pytest.mark.parametrize("failure", ["options", "registry"])
+def test_stop_observer_precore_startup_error_is_not_a_runtime_fault(failure):
+    runtime, _, _ = fixture(**({"session_idle_timeout_ms": 0} if failure == "options" else {}))
+    if failure == "registry":
+        runtime.register_orchestration_versioned("ObserverInvalidRegistry", "invalid", lambda _context, _input: "ok")
+    observer = runtime.stop_observer()
+    with pytest.raises(RuntimeError, match="lifecycle_start_failed") as start:
+        runtime.start()
+    assert observer.state is RuntimeStopStatus.NOT_REQUESTED
+    with pytest.raises(RuntimeError) as stop:
+        runtime.shutdown(0)
+    assert str(start.value) == str(stop.value)
+    assert observer.wait_for_change(RuntimeStopStatus.NOT_REQUESTED, 0) is RuntimeStopStatus.REQUESTED
+    assert observer.wait_for_change(RuntimeStopStatus.REQUESTED, 0) is None
+    observer.close()
+
+
+def test_stop_observer_core_cleanup_is_not_source_end():
+    runtime, _, _ = fixture()
+    observer = runtime.stop_observer()
+    runtime.start()
+    assert observer.state is RuntimeStopStatus.NOT_REQUESTED
+    runtime.shutdown(100)
+    assert observer.state is RuntimeStopStatus.REQUESTED
+    with pytest.raises(TimeoutError):
+        observer.wait_for_change(RuntimeStopStatus.REQUESTED, 0)
+    reference = weakref.ref(runtime)
+    del runtime
+    gc.collect()
+    assert reference() is None
+    assert observer.wait_for_change(RuntimeStopStatus.REQUESTED, 1000) is None
+    assert observer.state is RuntimeStopStatus.REQUESTED
+    observer.close()
+
+
+def run_observer_probe(scenario):
+    directory = Path(__file__).resolve().parents[1] / "target" / "lifecycle-observers" / uuid.uuid4().hex
+    directory.mkdir(parents=True)
+    command = [
+        sys.executable, str(Path(__file__).parent / "fixtures" / "lifecycle_probe.py"),
+        "observer-" + scenario, str(directory),
+    ]
+    try:
+        with LifecycleProbe("observer-" + scenario, command) as probe:
+            report = probe.expect_phase("OBSERVER_RESULT", 45 if "races" in scenario or "faults" in scenario else 12)
+            print("LIFECYCLE_OBSERVER " + json.dumps(report))
+            assert probe.child.poll() is None
+            probe.send("finish")
+            probe.expect_phase("OBSERVER_FINISHED", 3)
+            assert probe.child.wait(timeout=3) == 0
+            return report
+    finally:
+        shutil.rmtree(directory)
+
+
+@pytest.mark.parametrize("scenario", [
+    "timeout", "close", "interrupt", "signal-close", "signal-error", "signal-return",
+])
+def test_stop_observer_interrupts_before_held_callback_cleanup_in_both_modes(scenario):
+    report = run_observer_probe(scenario)
+    assert report["otherThreadProgress"] and report["nativeWaitActive"]
+    assert report["callbackHeldAtSettlement"]
+    assert report["stopStateAtSettlement"] == RuntimeStopStatus.NOT_REQUESTED
+
+
+@pytest.mark.parametrize("scenario", ["ordered-races", "source-end", "collection", "exit"])
+def test_stop_observer_owned_lifetime_and_ordered_races_in_both_modes(scenario):
+    report = run_observer_probe(scenario)
+    if scenario == "ordered-races":
+        assert report["iterations"] == 100
+        assert report["duplicateSettlements"] == 0
+        assert report["outcomes"] == {"change": 25, "close": 25, "timeout": 25, "precore": 25}
+    if "collected" in report:
+        assert all(report["collected"].values()), report
+
+
+@hook_test
+@pytest.mark.parametrize("scenario", [
+    "attachment-faults", "fault-before-stop", "source-freeze", "delivery-retention", "transport-failure",
+])
+def test_stop_observer_real_faults_and_native_notification_lifetime(scenario):
+    report = run_observer_probe(scenario)
+    if scenario == "attachment-faults":
+        assert report["iterations"] == 100
+        assert report["faultObservedBeforeCleanup"]
+    elif scenario == "fault-before-stop":
+        assert report["faultWithoutSdkStop"] and report["callbackHeldAtFault"]
+        assert report["lateState"] == RuntimeStopStatus.FAULTED
+        assert report["callbackRetiredAfterRelease"]
+    elif scenario == "delivery-retention":
+        assert report["nativeTailHeld"] and report["oldDeliveryDidNotSettleRetry"]
+        assert all(report["collected"].values()), report

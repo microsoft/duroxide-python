@@ -347,6 +347,33 @@ Independent Clients, providers, and provider token-refresh work keep their separ
 See the [lifecycle guide](user-guide.md#runtime-lifecycle) for validation and
 release prerequisites.
 
+### Passive Stop Observation
+
+`Runtime` caches a receiver-only native source when it creates its wrapper.
+`stop_observer()` uses this source without borrowing the mutable native Runtime
+during startup or shutdown. Each observer owns metadata and a pending-wait slot,
+not the Runtime, provider, or Python callback registry.
+
+Publisher retirement freezes the final state and detaches its live core receiver.
+Core retirement alone is not SDK source end. A wait returns an unseen final
+state before `None`; local `close()` instead makes pending and later use fail.
+The final snapshot remains readable until local close.
+
+Foreground waiting releases the GIL. Native waits have bounded signal-check
+opportunities, and Python signal handlers run outside metadata locks.
+One absolute optional timeout is kept across those checks.
+The pending-slot guard cancels/clears each return or error, including
+`KeyboardInterrupt` and reentrant signal exceptions.
+Native notification tasks own no Python or worker objects and cannot clear a
+later wait's slot. Accepted oneshot-send counters are not Python-settlement counts.
+
+Notification final access is separate from public wait settlement and worker
+cleanup. An observer can remain alive while eligible worker callbacks collect.
+An offloaded Python wait still belongs to its calling thread: asyncio task
+cancellation does not cancel it. A foreground/non-daemon waiting thread can
+keep the process running. See the
+[observer contract and example](user-guide.md#passive-stop-observation).
+
 ### Platform-Specific Binary
 
 PyO3/maturin compiles to a platform-specific `.so`/`.dylib`/`.pyd` binary. Cross-platform distribution requires building on each target platform or using maturin's CI toolchain with manylinux containers.
