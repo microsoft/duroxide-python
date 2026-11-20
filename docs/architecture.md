@@ -343,6 +343,11 @@ The application or supervisor must terminate the process, even after actual late
 Operational and startup failures raise `RuntimeError`; they do not report successful retirement.
 The SDK never kills the process.
 This adapter does not add the .NET foreign-continuation barrier or track arbitrary Python work.
+The matching unreleased core contains named user-cleanup failures while preserving
+actual outer results and valid finalized decisions. A synchronous Python callback
+remains owned until it returns; a shutdown timeout cannot preempt it.
+Application-created threads or other unregistered descendants remain a separate
+responsibility. Native future destruction is not proof that all Python work ended.
 Independent Clients, providers, and provider token-refresh work keep their separate lifetimes.
 See the [lifecycle guide](user-guide.md#runtime-lifecycle) for validation and
 release prerequisites.
@@ -373,6 +378,9 @@ An offloaded Python wait still belongs to its calling thread: asyncio task
 cancellation does not cancel it. A foreground/non-daemon waiting thread can
 keep the process running. See the
 [observer contract and example](user-guide.md#passive-stop-observation).
+Contained incidents use native `duroxide::runtime::cleanup` tracing, not stop
+observer state. Core/reporting/finalization failures remain Runtime-fatal.
+See [native cleanup failures](user-guide.md#native-cleanup-failures).
 
 ### Platform-Specific Binary
 

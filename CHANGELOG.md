@@ -18,6 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Document named user-cleanup containment with the matching unreleased core:
+  actual outer outcomes and valid finalized decisions survive eligible late
+  failure, with per-incident native tracing instead of false `Faulted` state.
+  Core and delegated lifecycle failures remain fatal. No Python API,
+  callback-lifetime barrier, shutdown budget or dependency pin changes;
+  synchronous callbacks stay owned and cannot be preempted by a timeout.
 - Use fallible core startup and bounded shutdown waits while preserving successful `None` returns.
   Total waiting is the supplied grace plus five seconds.
   Omitted grace is one second. Idle workers can finish early.

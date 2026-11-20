@@ -131,6 +131,31 @@ Owner loss still requires retained ownership and process termination.
 At the first shutdown call, give the supervisor more than grace plus 5000 ms.
 Leave additional time for other shutdown work and process termination.
 
+### Native cleanup failures
+
+The matching unreleased core contains failures at named user-cleanup boundaries,
+not arbitrary failures in a task or language. Eligible late cleanup failure
+preserves the actual outer outcome or valid finalized turn decision.
+A nested success does not turn a failed outer operation into success.
+Core, reporting, finalization and registered-cleanup failures still stop the
+affected Runtime. Valid output or a decision is not proof of a committed write.
+
+Native tracing emits a separate `duroxide::runtime::cleanup` event with
+`category="contained_user_cleanup"` for each incident. It does not set `Faulted`;
+`stop_observer()` is not an incident feed or a health check.
+Containment does not repair application state. Panic-payload disposal has at
+most two protected attempts; `cleanup-skipped` means an allocation was left
+undisposed. Attempts can block, and process abort is outside unwind containment.
+The separate Rust panic hook can still print raw payloads.
+
+A synchronous Python callback stays owned until it returns, even if shutdown
+times out. Neither timeout nor native drop can preempt it.
+Application-created threads and other unregistered work remain separately owned;
+this policy adds no .NET-style foreign-completion barrier.
+Existing first-stop budgets and termination requirements remain unchanged.
+These rules require a native build containing the new core behavior; published
+core 0.1.32 or an unchanged registry-only SDK graph does not supply it.
+
 ### Passive stop observation
 
 `runtime.stop_observer()` creates an independent `RuntimeStopObserver`.
