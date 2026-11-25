@@ -93,6 +93,16 @@ impl LifecycleTestHooks {
             .map_err(|error| PyRuntimeError::new_err(format!("test fault: {error:?}")))
     }
 
+    fn fail_observation_status(&self, runtime: &PyRuntime) -> PyResult<()> {
+        if !Arc::ptr_eq(&self.observation.0, &runtime.stop_source.hooks.0) {
+            return Err(PyRuntimeError::new_err(
+                "test observation publisher does not match",
+            ));
+        }
+        runtime.stop_source.fail_status();
+        Ok(())
+    }
+
     fn retire_observation_publisher(&self, runtime: &mut PyRuntime) -> PyResult<()> {
         if !Arc::ptr_eq(&self.observation.0, &runtime.stop_source.hooks.0) {
             return Err(PyRuntimeError::new_err(

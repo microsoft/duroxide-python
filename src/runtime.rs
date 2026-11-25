@@ -505,20 +505,20 @@ struct ShutdownOwner {
 }
 
 impl ShutdownOwner {
-    async fn shutdown_until(
-        mut self,
-        grace_deadline: Instant,
-    ) -> Result<runtime::ShutdownOutcome, runtime::RuntimeShutdownError> {
+    async fn shutdown_until(mut self, grace_deadline: Instant) -> ShutdownResult {
         let result = self
             .runtime
             .as_ref()
             .unwrap()
             .clone()
             .shutdown_until(grace_deadline)
-            .await;
+            .await
+            .map_err(ShutdownWaitError::Core);
         let quiescent = match &result {
-            Ok(_) => true,
-            Err(error) => error.is_quiescent(),
+            Ok(runtime::ShutdownOutcome::Drained | runtime::ShutdownOutcome::Forced) => true,
+            Ok(_) => return Err(ShutdownWaitError::UnsupportedOutcome),
+            Err(ShutdownWaitError::Core(error)) => error.is_quiescent(),
+            Err(_) => false,
         };
         if quiescent {
             // PyO3 defers off-GIL reference decrements until the next GIL entry.
@@ -540,25 +540,27 @@ impl Drop for ShutdownOwner {
 
 #[derive(Clone)]
 struct ShutdownOperation {
-    completion:
-        watch::Receiver<Option<Result<runtime::ShutdownOutcome, runtime::RuntimeShutdownError>>>,
+    completion: watch::Receiver<Option<ShutdownResult>>,
     total_deadline: Instant,
 }
+
+type ShutdownResult = Result<runtime::ShutdownOutcome, ShutdownWaitError>;
 
 #[derive(Clone, Copy)]
 enum ShutdownWaitError {
     TimedOut,
     OwnerLost,
     Core(runtime::RuntimeShutdownError),
+    UnsupportedOutcome,
 }
 
 impl ShutdownOperation {
-    async fn wait(mut self) -> Result<runtime::ShutdownOutcome, ShutdownWaitError> {
+    async fn wait(mut self) -> ShutdownResult {
         loop {
             {
                 let completed = self.completion.borrow_and_update();
                 if let Some(result) = *completed {
-                    return result.map_err(ShutdownWaitError::Core);
+                    return result;
                 }
                 if Instant::now() >= self.total_deadline {
                     return Err(ShutdownWaitError::TimedOut);
@@ -586,6 +588,9 @@ fn shutdown_error(error: ShutdownWaitError) -> PyErr {
             "lifecycle_shutdown_failed: native shutdown owner failed; quiescence is unproven; application or supervisor must terminate the process",
         ),
         ShutdownWaitError::Core(error) => PyRuntimeError::new_err(format!("lifecycle_shutdown_failed: {error}")),
+        ShutdownWaitError::UnsupportedOutcome => PyRuntimeError::new_err(
+            "lifecycle_shutdown_failed: unsupported native shutdown outcome; quiescence is unproven; application or supervisor must terminate the process",
+        ),
     }
 }
 

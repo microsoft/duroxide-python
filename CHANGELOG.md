@@ -18,11 +18,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Align native dependency declarations with Duroxide 0.2.0 and `duroxide-pg`
+  0.2.0. Lifecycle support still requires the matching unreleased core.
 - Document named user-cleanup containment with the matching unreleased core:
   actual outer outcomes and valid finalized decisions survive eligible late
   failure, with per-incident native tracing instead of false `Faulted` state.
   Core and delegated lifecycle failures remain fatal. No Python API,
-  callback-lifetime barrier, shutdown budget or dependency pin changes;
+  callback-lifetime barrier or shutdown budget changes;
   synchronous callbacks stay owned and cannot be preempted by a timeout.
 - Use fallible core startup and bounded shutdown waits while preserving successful `None` returns.
   Total waiting is the supplied grace plus five seconds.
@@ -44,12 +46,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Report unsupported native stop states as observation errors, not healthy or
+  faulted states. Unsupported shutdown outcomes retain cleanup ownership
+  without claiming quiescence.
 - Release obsolete native activity-callback ownership after proven cleanup,
   including quiescent failures and late completion without another shutdown call.
   This breaks bound-method and self-capturing callback cycles that Python cannot otherwise collect.
   The first budgets and terminal outcomes remain available.
   Incomplete cleanup or a lost cleanup owner still retains ownership.
   Independent Clients, providers, and the global orchestration-handler map do not change.
+
+### Upgrade notes
+
+- PostgreSQL migrations `0027` and `0028` require a fully drained upgrade:
+  pause retention jobs and drain every provider user, including workers,
+  clients, maintenance jobs and direct SQL callers. Start one new process
+  to apply migrations before restarting traffic. Review retention cutoffs,
+  migration lock windows and rollback compatibility in the
+  [provider 0.2.0 upgrade instructions](https://github.com/microsoft/duroxide-pg/releases/tag/v0.2.0).
+  Existing SDK constructors keep long polling disabled.
 
 ### Tests
 

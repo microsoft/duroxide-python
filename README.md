@@ -177,6 +177,13 @@ def send_email(ctx, input):
 
 ## PostgreSQL Provider
 
+**Database upgrade:** `duroxide-pg` 0.2.0 requires a fully drained upgrade.
+Pause retention jobs and drain all provider users, including workers, clients,
+maintenance jobs and direct SQL callers. Start one new process to apply migrations
+before restarting traffic. Review the
+[provider upgrade and rollback instructions](https://github.com/microsoft/duroxide-pg/releases/tag/v0.2.0)
+before connecting to an existing database.
+
 ```python
 from duroxide import PostgresEntraOptions, PostgresProvider, Client, Runtime
 

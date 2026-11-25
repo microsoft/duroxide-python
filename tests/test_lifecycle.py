@@ -571,6 +571,41 @@ def test_stop_observer_core_cleanup_is_not_source_end():
     observer.close()
 
 
+@hook_test
+def test_unsupported_native_stop_status_fails_observation_without_stopping_or_releasing_worker():
+    runtime, _, hooks = fixture()
+    observer = runtime.stop_observer()
+    hooks.hold("observer-wait")
+    hooks.hold("observer-final-access")
+    try:
+        runtime.start()
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            pending = executor.submit(observer.wait_for_change, RuntimeStopStatus.NOT_REQUESTED, 5000)
+            hooks.wait_entered("observer-wait")
+            hooks.fail_observation_status(runtime._native)
+            hooks.release("observer-wait")
+            with pytest.raises(RuntimeError, match="stop_observation_failed: unsupported native stop status"):
+                pending.result(timeout=5)
+        hooks.wait_entered("observer-final-access")
+        assert json.loads(hooks.snapshot())["observerDeliveries"] == 1
+        hooks.release("observer-final-access")
+        with pytest.raises(RuntimeError, match="stop_observation_failed: unsupported native stop status"):
+            _ = observer.state
+        assert runtime.metrics_snapshot() is not None
+        assert json.loads(hooks.snapshot())["coordinators"] == 0
+        runtime.shutdown(100)
+        hooks.retire_observation_publisher(runtime._native)
+        with pytest.raises(RuntimeError, match="stop_observation_failed: unsupported native stop status"):
+            _ = observer.state
+        with pytest.raises(RuntimeError, match="stop_observation_failed: unsupported native stop status"):
+            observer.wait_for_change(RuntimeStopStatus.REQUESTED, 0)
+    finally:
+        hooks.release("observer-wait")
+        hooks.release("observer-final-access")
+        observer.close()
+        runtime.shutdown(100)
+
+
 def run_observer_probe(scenario):
     directory = Path(__file__).resolve().parents[1] / "target" / "lifecycle-observers" / uuid.uuid4().hex
     directory.mkdir(parents=True)

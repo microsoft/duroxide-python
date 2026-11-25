@@ -12,27 +12,34 @@ use crate::runtime::TOKIO_RT;
 
 const SIGNAL_CHECK_INTERVAL: Duration = Duration::from_millis(50);
 
+type ObservedStatus = Result<RuntimeStopStatus, ObservationError>;
+
 #[derive(Clone)]
 struct SourceState {
-    status: RuntimeStopStatus,
+    status: ObservedStatus,
     core: Option<RuntimeStopObserver>,
     closed: bool,
 }
 
-fn merge(left: RuntimeStopStatus, right: RuntimeStopStatus) -> RuntimeStopStatus {
+fn merge(left: ObservedStatus, right: ObservedStatus) -> ObservedStatus {
     use RuntimeStopStatus::*;
-    match (left, right) {
-        (Faulted, _) | (_, Faulted) => Faulted,
-        (Requested, _) | (_, Requested) => Requested,
-        _ => NotRequested,
+    match (left?, right?) {
+        (NotRequested, NotRequested) => Ok(NotRequested),
+        (NotRequested | Requested, Requested) | (Requested, NotRequested) => Ok(Requested),
+        (NotRequested | Requested | Faulted, Faulted) | (Faulted, NotRequested | Requested) => {
+            Ok(Faulted)
+        }
+        _ => Err(ObservationError::UnsupportedStatus),
     }
 }
 
 impl SourceState {
-    fn status(&self) -> RuntimeStopStatus {
+    fn status(&self) -> ObservedStatus {
         merge(
             self.status,
-            self.core.as_ref().map_or(self.status, |core| core.state()),
+            self.core
+                .as_ref()
+                .map_or(self.status, |core| Ok(core.state())),
         )
     }
 }
@@ -47,7 +54,7 @@ impl StopSource {
     pub fn new() -> Self {
         Self {
             state: watch::channel(SourceState {
-                status: RuntimeStopStatus::NotRequested,
+                status: Ok(RuntimeStopStatus::NotRequested),
                 core: None,
                 closed: false,
             })
@@ -68,14 +75,14 @@ impl StopSource {
     pub fn attach(&self, core: RuntimeStopObserver) {
         self.state.send_modify(|state| {
             assert!(!state.closed && state.core.is_none());
-            state.status = merge(state.status, core.state());
+            state.status = merge(state.status, Ok(core.state()));
             state.core = Some(core);
         });
     }
 
     pub fn requested(&self) {
         self.state.send_if_modified(|state| {
-            let status = merge(state.status, RuntimeStopStatus::Requested);
+            let status = merge(state.status, Ok(RuntimeStopStatus::Requested));
             if state.closed || state.status == status {
                 return false;
             }
@@ -90,6 +97,12 @@ impl StopSource {
             state.core = None;
             state.closed = true;
         });
+    }
+
+    #[cfg(feature = "test-hooks")]
+    pub(crate) fn fail_status(&self) {
+        self.state
+            .send_modify(|state| state.status = Err(ObservationError::UnsupportedStatus));
     }
 }
 
@@ -140,7 +153,10 @@ impl PyRuntimeStopObserver {
         let state = self.state.lock();
         let source = state.source.as_ref().ok_or_else(closed_error)?;
         let snapshot = source.borrow();
-        Ok(encode(snapshot.status()))
+        snapshot
+            .status()
+            .and_then(encode)
+            .map_err(observation_error)
     }
 
     #[pyo3(signature = (last_seen, timeout_ms=None))]
@@ -162,9 +178,9 @@ impl PyRuntimeStopObserver {
             }
             {
                 let snapshot = source.borrow();
-                let status = snapshot.status();
+                let status = snapshot.status().map_err(observation_error)?;
                 if status != last_seen {
-                    return Ok(Some(encode(status)));
+                    return encode(status).map(Some).map_err(observation_error);
                 }
                 if snapshot.closed {
                     return Ok(None);
@@ -211,13 +227,8 @@ impl PyRuntimeStopObserver {
             });
             if let Some(result) = result {
                 return result
-                    .map(|status| status.map(encode))
-                    .map_err(|error| match error {
-                        ObservationError::Closed => closed_error(),
-                        ObservationError::Failed => PyRuntimeError::new_err(
-                            "stop_observation_failed: native observation failed",
-                        ),
-                    });
+                    .and_then(|status| status.map(encode).transpose())
+                    .map_err(observation_error);
             }
             if deadline.is_some_and(|until| Instant::now() >= until) {
                 return Err(timeout_error());
@@ -240,9 +251,23 @@ impl Drop for PendingWait<'_> {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ObservationError {
     Closed,
     Failed,
+    UnsupportedStatus,
+}
+
+fn observation_error(error: ObservationError) -> PyErr {
+    match error {
+        ObservationError::Closed => closed_error(),
+        ObservationError::Failed => {
+            PyRuntimeError::new_err("stop_observation_failed: native observation failed")
+        }
+        ObservationError::UnsupportedStatus => {
+            PyRuntimeError::new_err("stop_observation_failed: unsupported native stop status")
+        }
+    }
 }
 
 fn spawn_wait(
@@ -265,7 +290,7 @@ fn spawn_wait(
                 #[cfg(feature = "test-hooks")]
                 waiting_hooks.checkpoint("observer-wait").await;
                 changed(&mut source, last_seen).await
-            } => Ok(status),
+            } => status,
         }
     });
     TOKIO_RT.spawn(async move {
@@ -301,21 +326,21 @@ fn spawn_wait(
 async fn changed(
     source: &mut watch::Receiver<SourceState>,
     last_seen: RuntimeStopStatus,
-) -> Option<RuntimeStopStatus> {
+) -> Result<Option<RuntimeStopStatus>, ObservationError> {
     loop {
         let (state, status) = {
             let state = source.borrow_and_update();
-            (state.clone(), state.status())
+            (state.clone(), state.status()?)
         };
         if status != last_seen {
-            return Some(status);
+            return Ok(Some(status));
         }
         if state.closed {
-            return None;
+            return Ok(None);
         }
         if let Some(mut core) = state.core {
             let native_status = core.state();
-            if merge(state.status, native_status) != last_seen {
+            if merge(state.status, Ok(native_status))? != last_seen {
                 continue;
             }
             tokio::select! {
@@ -333,11 +358,12 @@ async fn changed(
     }
 }
 
-fn encode(status: RuntimeStopStatus) -> &'static str {
+fn encode(status: RuntimeStopStatus) -> Result<&'static str, ObservationError> {
     match status {
-        RuntimeStopStatus::NotRequested => "NotRequested",
-        RuntimeStopStatus::Requested => "Requested",
-        RuntimeStopStatus::Faulted => "Faulted",
+        RuntimeStopStatus::NotRequested => Ok("NotRequested"),
+        RuntimeStopStatus::Requested => Ok("Requested"),
+        RuntimeStopStatus::Faulted => Ok("Faulted"),
+        _ => Err(ObservationError::UnsupportedStatus),
     }
 }
 
