@@ -6,6 +6,9 @@ mod handlers;
 mod pg_provider;
 mod provider;
 mod runtime;
+mod stop_observation;
+#[cfg(feature = "test-hooks")]
+mod test_hooks;
 mod types;
 
 use pyo3::prelude::*;
@@ -173,6 +176,11 @@ fn init_tracing(
 
 #[pymodule]
 fn _duroxide(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    #[cfg(feature = "test-hooks")]
+    {
+        m.add_function(wrap_pyfunction!(test_hooks::_lifecycle_test_hooks, m)?)?;
+        m.add_class::<test_hooks::LifecycleTestHooks>()?;
+    }
     m.add_function(wrap_pyfunction!(activity_trace_log, m)?)?;
     m.add_function(wrap_pyfunction!(orchestration_trace_log, m)?)?;
     m.add_function(wrap_pyfunction!(activity_is_cancelled, m)?)?;
@@ -195,6 +203,8 @@ fn _duroxide(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<pg_provider::PyPostgresEntraOptions>()?;
     m.add_class::<client::PyClient>()?;
     m.add_class::<runtime::PyRuntime>()?;
+    m.add_class::<stop_observation::PyRuntimeStopSource>()?;
+    m.add_class::<stop_observation::PyRuntimeStopObserver>()?;
     m.add_class::<runtime::PyRuntimeOptions>()?;
     m.add_class::<types::PyOrchestrationStatus>()?;
     m.add_class::<types::PySystemMetrics>()?;

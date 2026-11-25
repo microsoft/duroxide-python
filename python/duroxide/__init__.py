@@ -57,6 +57,7 @@ PyMetricsSnapshot = MetricsSnapshot
 PyRuntimeOptions = RuntimeOptions
 
 import json
+from enum import Enum
 
 # ─── Generator Driver Registry ───────────────────────────────────
 
@@ -420,6 +421,81 @@ class Client:
         return self._native.prune_executions_bulk(filter, options)
 
 
+class RuntimeStopStatus(str, Enum):
+    """String-valued stop metadata, not readiness or proof of cleanup.
+
+    NOT_REQUESTED includes unconstructed, starting and running workers.
+    REQUESTED records accepted stop, not native receipt or completed cleanup.
+    FAULTED is a sticky recorded core-wide fault. Observation errors, timeout,
+    interruption and pre-core validation failures do not produce it.
+    """
+
+    NOT_REQUESTED = "NotRequested"
+    REQUESTED = "Requested"
+    FAULTED = "Faulted"
+
+
+_STOP_OBSERVER_TOKEN = object()
+
+
+class RuntimeStopObserver:
+    """Owned, metadata-only observation from Runtime.stop_observer().
+
+    Read state before waiting: a late reader can already see FAULTED.
+    Each consumer needs an independent observer and owns its close().
+    Observation retains no Runtime/provider/registry ownership, requests no
+    shutdown, and changes no shutdown deadline or application policy.
+    Neither state nor normal source end proves cleanup or permits release.
+    """
+
+    def __init__(self, native_observer=None, *, _token=None):
+        if _token is not _STOP_OBSERVER_TOKEN:
+            raise TypeError("Use Runtime.stop_observer() to create an observer")
+        self._native = native_observer
+
+    @property
+    def state(self) -> RuntimeStopStatus:
+        """Read retained state without starting or stopping execution.
+
+        The final snapshot remains readable after normal source end, until
+        local close. Access after close raises RuntimeError.
+        """
+        return RuntimeStopStatus(self._native.state)
+
+    def wait_for_change(self, last_seen: RuntimeStopStatus, timeout_ms: int = None):
+        """Wait for a state different from last_seen, or None at normal source end.
+
+        Return an unseen final state before None. Intermediate changes can
+        coalesce. Unchanged REQUESTED/FAULTED still waits while the source is open.
+        Only one wait may be pending on this observer; overlap raises RuntimeError.
+
+        Use timeout_ms=None for no timeout, or a nonnegative integer number of
+        milliseconds in the native deadline range. Zero returns an available
+        change/source end immediately, otherwise raises TimeoutError.
+        Expiry and KeyboardInterrupt permit retry and consume no state.
+        Local close instead raises RuntimeError and prevents reuse.
+        Observation errors propagate without manufacturing FAULTED.
+
+        Native waiting releases the GIL and checks Python signals at bounded
+        opportunities outside metadata locks. Signal-handler exceptions propagate.
+        One absolute timeout is kept; signal checks do not restart it.
+        The calling thread still blocks and delivery needs GIL/executor progress.
+        Do not block an asyncio event loop. Canceling an asyncio.to_thread task
+        does not cancel the underlying wait; use close() or a finite timeout.
+        """
+        status = self._native.wait_for_change(last_seen, timeout_ms)
+        return RuntimeStopStatus(status) if status is not None else None
+
+    def close(self):
+        """End this observer, not worker cleanup. Idempotent and terminal.
+
+        Safe from another thread while a wait is active. Pending and later
+        operations raise RuntimeError; an already returned result is unchanged.
+        Does not join worker cleanup or native notification final access.
+        """
+        self._native.close()
+
+
 class Runtime:
     """Durable execution runtime."""
 
@@ -428,6 +504,7 @@ class Runtime:
             self._native = PyRuntime.from_postgres(provider._native, options)
         else:
             self._native = PyRuntime.from_sqlite(provider._native, options)
+        self._stop_source = self._native.stop_source()
         # Wire up the generator driver functions
         self._native.set_generator_driver(
             create_generator, next_step, dispose_generator
@@ -505,13 +582,13 @@ class Runtime:
             runtime.register_orchestration("my_orch", my_fn)
         """
         if fn is not None:
-            _orchestration_functions[name] = fn
             self._native.register_orchestration(name)
+            _orchestration_functions[name] = fn
             return fn
 
         def decorator(func):
-            _orchestration_functions[name] = func
             self._native.register_orchestration(name)
+            _orchestration_functions[name] = func
             return func
 
         return decorator
@@ -526,14 +603,14 @@ class Runtime:
         """Register a versioned orchestration generator function. Can be used as a decorator."""
         if fn is not None:
             key = f"{name}@{version}"
-            _orchestration_functions[key] = fn
             self._native.register_orchestration_versioned(name, version)
+            _orchestration_functions[key] = fn
             return fn
 
         def decorator(func):
             key = f"{name}@{version}"
-            _orchestration_functions[key] = func
             self._native.register_orchestration_versioned(name, version)
+            _orchestration_functions[key] = func
             return func
 
         return decorator
@@ -548,16 +625,40 @@ class Runtime:
         """
         return self.register_orchestration_versioned(name, version, fn)
 
+    def stop_observer(self) -> RuntimeStopObserver:
+        """Create an independent observer, including during native startup/shutdown.
+
+        Does not start/stop execution or retain this worker. Read its initial
+        state before waiting. The caller owns close().
+        """
+        return RuntimeStopObserver(
+            self._stop_source.observer(), _token=_STOP_OBSERVER_TOKEN
+        )
+
     def start(self):
-        """Start the runtime. Blocks until shutdown is called."""
+        """Start once and return after startup.
+
+        Do not overlap lifecycle or registration calls on this instance.
+        """
         self._native.start()
 
     def shutdown(self, timeout_ms: int = None):
-        """Shutdown the runtime gracefully."""
+        """Stop permanently, even before start.
+
+        Grace defaults to 1000 ms. Total waiting is grace plus 5000 ms.
+        Repeated calls keep the original deadlines and observe actual completion or errors.
+        TimeoutError leaves cleanup owned.
+        The application or supervisor must then terminate the process.
+        Startup and operational failures raise RuntimeError.
+        RuntimeError alone does not prove that cleanup ended.
+        Loss of the native shutdown owner also requires process termination because cleanup is unproven.
+        Durations must be nonnegative integers in the native deadline range.
+        Do not overlap lifecycle or registration calls on this instance.
+        """
         self._native.shutdown(timeout_ms)
 
     def metrics_snapshot(self):
-        """Get a snapshot of runtime metrics."""
+        """Get runtime metrics, or None after accepted startup failure or stop."""
         return self._native.metrics_snapshot()
 
 
@@ -600,6 +701,8 @@ __all__ = [
     "PostgresEntraOptions",
     "Client",
     "Runtime",
+    "RuntimeStopStatus",
+    "RuntimeStopObserver",
     "OrchestrationResult",
     "RuntimeOptions",
     "OrchestrationContext",
